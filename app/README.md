@@ -117,4 +117,9 @@ cd app && go test ./...
     Tokenize (PaymentMethods), webhooks con firma HMAC-SHA256, mapeo de
     decline codes a `NormalizedError` canónico, idempotency-key, tests con
     `httptest` (70.9% cobertura).
-  - ⏳ Mercado Pago, Kushki, dLocal, Niubiz, Adyen.
+  - ✅ **Mercado Pago** — Payments (auth/capture/charge/void), Refunds,
+    Tokenize (card_tokens), webhooks con firma HMAC-SHA256 (`x-signature`),
+    mapeo de `cc_rejected_*` status_detail a `NormalizedError` canónico,
+    soporte APMs (Pix/SPEI/PSE/PagoEfectivo) con NextAction (redirect/QR),
+    idempotency-key, tests con `httptest` (69.1% cobertura).
+  - ⏳ Kushki, dLocal, Niubiz, Adyen.

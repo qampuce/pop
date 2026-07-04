@@ -133,8 +133,14 @@ func runSingleProvider[T any](
 	for attempt := 1; attempt <= c.policy.MaxAttempts; attempt++ {
 		gw, err := c.registry.BuildFromCredentials(ctx, resolver, tenantID, provider, mode)
 		if err != nil {
+			// missing_credentials = el tenant no configuró este provider.
+			// Lo marcamos retryable para que el cascading salte al siguiente
+			// provider de la lista (cross-provider fallback) en lugar de
+			// abortar toda la operación. Si NINGÚN provider tiene
+			// credenciales, el último error se devuelve al caller.
 			ne := core.NewError(core.ErrMissingCredentials, core.CategoryAuth, provider,
 				fmt.Sprintf("cannot build adapter: %v", err))
+			ne.Retryable = true
 			return zero, ne
 		}
 

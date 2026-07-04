@@ -29,6 +29,7 @@ import (
 	"net/http"
 
 	_ "github.com/qampu/pop/internal/adapters/mock" // registra mock en factory.Default
+	_ "github.com/qampu/pop/internal/adapters/mercadopago" // registra mercadopago en factory.Default
 	"github.com/qampu/pop/internal/cascading"
 	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/factory"
