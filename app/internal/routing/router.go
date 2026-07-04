@@ -170,16 +170,18 @@ func orderByPriority(candidates []core.ProviderID, req *RouteRequest) []core.Pro
 		prio[p] = len(candidates) + i // base: orden de registro
 	}
 
-	// Prioridad por método (más específica) sobreescribe país.
-	if req.Rules.MethodPriorities != nil {
-		if list, ok := req.Rules.MethodPriorities[req.Method]; ok {
+	// Prioridad por país primero, luego por método (más específica) la
+	// sobreescribe. Así un tenant puede tener un default por país y refinarlo
+	// por método cuando convenga.
+	if req.Rules.Priorities != nil {
+		if list, ok := req.Rules.Priorities[req.Country]; ok {
 			for i, p := range list {
 				prio[p] = i
 			}
 		}
 	}
-	if req.Rules.Priorities != nil {
-		if list, ok := req.Rules.Priorities[req.Country]; ok {
+	if req.Rules.MethodPriorities != nil {
+		if list, ok := req.Rules.MethodPriorities[req.Method]; ok {
 			for i, p := range list {
 				prio[p] = i
 			}

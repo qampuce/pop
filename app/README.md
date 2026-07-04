@@ -27,8 +27,9 @@ app/
 │   │   ├── errors.go              ← NormalizedError + ErrorCode + ErrorCategory
 │   │   ├── context.go             ← TenantContext + CredentialResolver + CredentialVault (AES-256-GCM)
 │   │   └── core_test.go           ← tests del contrato
-│   ├── adapters/                  ← implementaciones por proveedor (Fase 2)
-│   │   └── mock/                  ← adapter de referencia (tests + dev local)
+│   ├── adapters/                  ← implementaciones por proveedor
+│   │   ├── mock/                  ← adapter de referencia (tests + dev local)
+│   │   └── stripe/                ← adapter real Stripe (PaymentIntents + webhooks)
 │   ├── factory/                   ← registry de adapters: BuildFromCredentials()
 │   ├── routing/                   ← router inteligente por país/moneda/método
 │   ├── cascading/                 ← reintentos + fallback cross-provider
@@ -111,5 +112,9 @@ cd app && go test ./...
 
 - **Fase 1** ✅ Core, interfaces, DTOs, factory, router, cascading, vault,
   webhook normalizer, adapter mock, tests.
-- **Fase 2** ⏳ Adaptadores reales: Stripe, Mercado Pago, Kushki, dLocal,
-  Niubiz, Adyen.
+- **Fase 2** 🚧 Adaptadores reales:
+  - ✅ **Stripe** — PaymentIntents (auth/capture/charge/void), Refunds,
+    Tokenize (PaymentMethods), webhooks con firma HMAC-SHA256, mapeo de
+    decline codes a `NormalizedError` canónico, idempotency-key, tests con
+    `httptest` (70.9% cobertura).
+  - ⏳ Mercado Pago, Kushki, dLocal, Niubiz, Adyen.

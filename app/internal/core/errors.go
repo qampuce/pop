@@ -122,6 +122,9 @@ const (
 
 	// Error genérico no clasificado.
 	ErrUnknown            ErrorCode = "unknown_error"
+
+	// Error interno del SDK/adapter (bug, decode, etc.).
+	ErrInternal           ErrorCode = "internal_error"
 )
 
 // NewError constructor conveniente.
