@@ -2,6 +2,8 @@ package pop_test
 
 import (
 	"context"
+	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/qampu/pop/internal/core"
@@ -144,5 +146,79 @@ func TestClientNewRequiresCredentials(t *testing.T) {
 	_, err := pop.New(pop.Config{})
 	if err == nil {
 		t.Fatal("expected error when Credentials is nil")
+	}
+}
+
+// TestClientProcessWebhook verifica el flujo end-to-end del webhook normalizer:
+// el mock adapter verifica la firma, resuelve el tenant y normaliza el payload
+// a un Event canónico.
+func TestClientProcessWebhook(t *testing.T) {
+	c := newTestClient(t)
+
+	body := `{"type":"payment.captured","payment_id":"mock_pay_order_42","reference":"order_42","status":"captured","amount":19990,"currency":"PEN","provider_event_id":"evt_123","created_at":"2026-01-02T15:04:05Z"}`
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/mock", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Mock-Tenant", "tnt_1")
+	req.Header.Set("X-Mock-Signature", "mock_secret")
+
+	ev, err := c.ProcessWebhook(context.Background(), "mock", pop.Test, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ev.Type != pop.EventPaymentCaptured {
+		t.Errorf("expected payment.captured, got %s", ev.Type)
+	}
+	if ev.TenantID != "tnt_1" {
+		t.Errorf("expected tenant tnt_1, got %s", ev.TenantID)
+	}
+	if ev.Provider != "mock" {
+		t.Errorf("expected provider mock, got %s", ev.Provider)
+	}
+	if ev.PaymentID != "mock_pay_order_42" {
+		t.Errorf("expected payment_id mock_pay_order_42, got %s", ev.PaymentID)
+	}
+	if ev.Status != pop.StatusCaptured {
+		t.Errorf("expected status captured, got %s", ev.Status)
+	}
+	if ev.Amount.Amount != 19990 || ev.Amount.Currency != "PEN" {
+		t.Errorf("amount mismatch: %+v", ev.Amount)
+	}
+	if ev.ProviderEventID != "evt_123" {
+		t.Errorf("expected provider_event_id evt_123, got %s", ev.ProviderEventID)
+	}
+}
+
+// TestClientProcessWebhookBadSignature verifica que un signature inválido
+// devuelve error de firma.
+func TestClientProcessWebhookBadSignature(t *testing.T) {
+	c := newTestClient(t)
+
+	body := `{"type":"payment.captured"}`
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/mock", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Mock-Tenant", "tnt_1")
+	req.Header.Set("X-Mock-Signature", "wrong")
+
+	if _, err := c.ProcessWebhook(context.Background(), "mock", pop.Test, req); err == nil {
+		t.Fatal("expected signature error, got nil")
+	}
+}
+
+// TestClientProcessWebhookMissingTenant verifica que falta el header de tenant.
+func TestClientProcessWebhookMissingTenant(t *testing.T) {
+	c := newTestClient(t)
+
+	body := `{"type":"payment.captured"}`
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/mock", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.ProcessWebhook(context.Background(), "mock", pop.Test, req); err == nil {
+		t.Fatal("expected missing tenant error, got nil")
 	}
 }

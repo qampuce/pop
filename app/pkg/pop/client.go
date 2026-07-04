@@ -26,6 +26,7 @@ package pop
 import (
 	"context"
 	"fmt"
+	"net/http"
 
 	_ "github.com/qampu/pop/internal/adapters/mock" // registra mock en factory.Default
 	"github.com/qampu/pop/internal/cascading"
@@ -151,6 +152,20 @@ const (
 	RefundProductNotReceived  RefundReason = core.RefundProductNotReceived
 )
 
+// Eventos de webhook canónicos (re-export de webhook.EventType).
+const (
+	EventPaymentAuthorized EventType = webhook.EventPaymentAuthorized
+	EventPaymentCaptured   EventType = webhook.EventPaymentCaptured
+	EventPaymentFailed     EventType = webhook.EventPaymentFailed
+	EventPaymentVoided     EventType = webhook.EventPaymentVoided
+	EventPaymentPending    EventType = webhook.EventPaymentPending
+	EventRefundCreated     EventType = webhook.EventRefundCreated
+	EventRefundCompleted   EventType = webhook.EventRefundCompleted
+	EventRefundFailed      EventType = webhook.EventRefundFailed
+	EventDisputeOpened     EventType = webhook.EventDisputeOpened
+	EventDisputeResolved   EventType = webhook.EventDisputeResolved
+)
+
 // --- Operaciones ---
 
 // ChargeRequestExt extiende ChargeRequest con el contexto del tenant.
@@ -270,11 +285,13 @@ func (c *Client) Void(ctx context.Context, req *VoidRequestExt) (*PaymentResult,
 }
 
 // ProcessWebhook normaliza un webhook entrante.
-func (c *Client) ProcessWebhook(ctx context.Context, provider ProviderID, mode Environment, r interface {
-	Header() map[string][]string
-	Body() []byte
-}) (*Event, error) {
-	// Adaptador simple: el caller convierte su req http.Request al shape.
-	// En Fase 2 se provee un helper que acepta *http.Request directamente.
-	return nil, fmt.Errorf("pop: ProcessWebhook not yet wired (Phase 2)")
+//
+// Delega al webhook.Registry: verifica la firma del proveedor, resuelve el
+// TenantContext a partir del tenant identificado en la firma, y normaliza
+// el payload crudo a un Event estándar.
+//
+// El caller típicamente extrae el provider de la URL path (ej. /webhooks/stripe)
+// en su HTTP server y le pasa el *http.Request tal cual.
+func (c *Client) ProcessWebhook(ctx context.Context, provider ProviderID, mode Environment, r *http.Request) (*Event, error) {
+	return c.webhooks.Process(ctx, provider, c.cfg.Credentials, mode, r)
 }
