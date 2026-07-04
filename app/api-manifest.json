@@ -1,15 +1,66 @@
 {
-  "version": "1.0.0",
+  "version": "0.2.0",
   "basePath": "/",
-  "description": "pop — servicio gestionado por Qampu IA",
+  "description": "pop — orquestador de pagos multi-provider con routing inteligente, cascading y webhooks normalizados",
   "endpoints": [
     {
       "method": "GET",
       "path": "/health",
-      "description": "Health check del servicio"
+      "description": "Health check del servicio con versión y uptime"
+    },
+    {
+      "method": "GET",
+      "path": "/providers",
+      "description": "Lista los providers de pago registrados en el orquestador"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tokenize",
+      "description": "Tokeniza datos de pago (card/APM) via el provider indicado"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/charge",
+      "description": "Ejecuta autorización + captura en una operación con routing y cascading"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/authorize",
+      "description": "Reserva fondos sin capturar (auth-only) con routing y cascading"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/capture",
+      "description": "Captura fondos de una autorización previa contra el provider original"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/refund",
+      "description": "Devuelve fondos total o parcialmente de un pago capturado"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/void",
+      "description": "Cancela una autorización pendiente antes de su captura"
+    },
+    {
+      "method": "POST",
+      "path": "/webhooks/{provider}",
+      "description": "Recibe y normaliza webhooks del proveedor indicado (firma verificada)"
     }
   ],
-  "events": [],
+  "events": [
+    "payment.authorized",
+    "payment.captured",
+    "payment.failed",
+    "payment.voided",
+    "payment.pending",
+    "refund.created",
+    "refund.completed",
+    "refund.failed",
+    "dispute.opened",
+    "dispute.resolved"
+  ],
   "schemas": [],
   "consumes": []
 }

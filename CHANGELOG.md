@@ -18,6 +18,16 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/)
 - Cascading: `missing_credentials` ahora es retryable cross-provider para
   que el SDK salte al siguiente provider configurado del tenant en lugar de
   abortar la operación.
+- HTTP server (`cmd/server`) que expone el SDK como API REST en puerto 8080:
+  `/health`, `/providers`, `/api/v1/{tokenize,charge,authorize,capture,
+  refund,void}` y `/webhooks/{provider}`. Mapeo de `NormalizedError` a
+  HTTP status codes (402 declines, 502 upstream transitorio, 404 missing
+  credentials, etc.). Tenant `demo` sembrado en memoria para dev out-of-the-box.
+- Paquete `internal/api` con capa de transporte + tests completos
+  (health, providers, charge, authorize+capture flow, refund, void,
+  tokenize, webhook, error paths).
+- `api-manifest.json` actualizado a v0.2.0 con los 9 endpoints y los
+  10 eventos de webhook canónicos.
 
 ## [0.1.0] - 2026-07-04
 
