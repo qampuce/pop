@@ -1,0 +1,19 @@
+services:
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: pop-test
+    command: npm test
+    environment:
+      - NODE_ENV=test
+    volumes:
+      - ./src:/app/src:ro
+      - ./tests:/app/tests:ro
+    networks:
+      - pop-test-net
+
+networks:
+  pop-test-net:
+    driver: bridge

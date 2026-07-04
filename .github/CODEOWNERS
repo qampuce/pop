@@ -1,0 +1,11 @@
+# CODEOWNERS — Define quién revisa cada parte del código
+# El agente autónomo gestiona el código; el propietario aprueba cambios en producción
+
+# Regla global: todos los archivos
+* @qampuce
+
+# Infraestructura crítica — requiere revisión del propietario
+.github/workflows/ @qampuce
+Dockerfile @qampuce
+docker-compose.yml @qampuce
+.devin/ @qampuce

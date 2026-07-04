@@ -1,0 +1,15 @@
+{
+  "version": "1.0.0",
+  "basePath": "/",
+  "description": "pop — servicio gestionado por Qampu IA",
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/health",
+      "description": "Health check del servicio"
+    }
+  ],
+  "events": [],
+  "schemas": [],
+  "consumes": []
+}

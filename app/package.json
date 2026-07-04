@@ -1,0 +1,15 @@
+{
+  "name": "pop",
+  "version": "1.0.0",
+  "description": "pop — gestionado por Qampu IA",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test tests/",
+    "dev": "nodemon src/index.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+}

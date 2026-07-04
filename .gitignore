@@ -1,0 +1,41 @@
+# Devin / autonomía IA (no va al repo del proyecto)
+.devin/
+AGENTS.md
+.project-context.json
+.task-assets/
+
+# Registry de proyectos — estado runtime
+.devin/webhook/projects-registry.json
+.devin/webhook/.reload-requested
+
+# Entorno
+.env
+.env.local
+.env.*.local
+*.env
+
+# Node
+node_modules/
+.npm
+.pnpm-store/
+*.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Docker
+.docker/
+
+# Logs (descomenta si no quieres trackear logs en git)
+# logs/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

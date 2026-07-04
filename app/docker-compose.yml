@@ -1,0 +1,50 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    container_name: pop-app
+    ports:
+      # Puerto asignado por registry: 3006 → interno 3000
+      # URL pública: https://pop.qampuapp.com
+      - "${PORT:-3006}:3000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-development}
+    volumes:
+      - ./src:/app/src:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - pop-net
+
+  # ── Descomentar según necesidad ────────────────────────────────────────────
+  # db:
+  #   image: postgres:16-alpine
+  #   container_name: pop-db
+  #   environment:
+  #     POSTGRES_DB: ${POSTGRES_DB:-pop}
+  #     POSTGRES_USER: ${POSTGRES_USER:-admin}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+  #   volumes:
+  #     - db-data:/var/lib/postgresql/data
+  #   networks:
+  #     - pop-net
+
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: pop-redis
+  #   networks:
+  #     - pop-net
+
+networks:
+  pop-net:
+    driver: bridge
+
+# volumes:
+#   db-data:
