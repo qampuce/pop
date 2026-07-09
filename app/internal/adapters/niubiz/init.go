@@ -1,9 +1,4 @@
 package niubiz
 
-import (
-	"github.com/qampu/pop/internal/webhook"
-)
-
-func init() {
-	webhook.Default.Register(Provider, &niubizVerifier{}, &niubizNormalizer{})
-}
+// El registro del factory y webhook se hace en niubiz.go init()
+// para mantener todo el registro en un solo lugar.
