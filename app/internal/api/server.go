@@ -78,7 +78,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "ok",
 		"service":  "pop",
-		"version":  "0.4.0",
+		"version":  "0.5.0",
 		"uptime_s": int64(time.Since(startTime).Seconds()),
 	})
 }
@@ -272,11 +272,17 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handlePayments(w http.ResponseWriter, r *http.Request) {
 	// Extraer ID del path: /api/v1/payments/{id}
 	path := r.URL.Path
-	prefix := "/api/v1/payments/"
 	
+	// Normalizar el path para manejar ambos casos: /api/v1/payments y /api/v1/payments/
+	prefix := "/api/v1/payments/"
 	if !strings.HasPrefix(path, prefix) {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid path")
-		return
+		// Si el path es exactamente /api/v1/payments, agregar trailing slash
+		if path == "/api/v1/payments" {
+			path = "/api/v1/payments/"
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid_request", "invalid path")
+			return
+		}
 	}
 	
 	id := strings.TrimPrefix(path, prefix)
@@ -334,11 +340,17 @@ func (s *Server) handlePayments(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleRefunds(w http.ResponseWriter, r *http.Request) {
 	// Extraer ID del path: /api/v1/refunds/{id}
 	path := r.URL.Path
-	prefix := "/api/v1/refunds/"
 	
+	// Normalizar el path para manejar ambos casos: /api/v1/refunds y /api/v1/refunds/
+	prefix := "/api/v1/refunds/"
 	if !strings.HasPrefix(path, prefix) {
-		writeError(w, http.StatusBadRequest, "invalid_request", "invalid path")
-		return
+		// Si el path es exactamente /api/v1/refunds, agregar trailing slash
+		if path == "/api/v1/refunds" {
+			path = "/api/v1/refunds/"
+		} else {
+			writeError(w, http.StatusBadRequest, "invalid_request", "invalid path")
+			return
+		}
 	}
 	
 	id := strings.TrimPrefix(path, prefix)
