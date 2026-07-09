@@ -25,8 +25,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -58,11 +56,7 @@ const (
 
 func init() {
 	factory.Default.Register(Provider, Caps, New)
-	webhook.Default.Register(&webhook.WebhookHandler{
-		Provider:  Provider,
-		Verifier:  &adyenVerifier{},
-		Normalize: &adyenNormalizer{},
-	})
+	webhook.Default.Register(Provider, &adyenVerifier{}, &adyenNormalizer{})
 }
 
 // Adapter implementa core.Gateway contra Adyen.

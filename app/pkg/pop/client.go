@@ -293,6 +293,6 @@ func (c *Client) Void(ctx context.Context, req *VoidRequestExt) (*PaymentResult,
 //
 // El caller típicamente extrae el provider de la URL path (ej. /webhooks/stripe)
 // en su HTTP server y le pasa el *http.Request tal cual.
-func (c *Client) ProcessWebhook(ctx context.Context, provider ProviderID, mode Environment, r *http.Request) (*Event, error) {
+func (c *Client) ProcessWebhook(ctx context.Context, provider ProviderID, mode Environment, r *http.Request) (*webhook.Event, error) {
 	return c.webhooks.Process(ctx, provider, c.cfg.Credentials, mode, r)
 }

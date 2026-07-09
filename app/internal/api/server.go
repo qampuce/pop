@@ -49,15 +49,15 @@ func New(c *pop.Client) *Server {
 func (s *Server) Handler() http.Handler { return s.mux }
 
 func (s *Server) routes() {
-	s.mux.HandleFunc("GET /health", s.handleHealth)
-	s.mux.HandleFunc("GET /providers", s.handleProviders)
-	s.mux.HandleFunc("POST /api/v1/tokenize", s.handleTokenize)
-	s.mux.HandleFunc("POST /api/v1/charge", s.handleCharge)
-	s.mux.HandleFunc("POST /api/v1/authorize", s.handleAuthorize)
-	s.mux.HandleFunc("POST /api/v1/capture", s.handleCapture)
-	s.mux.HandleFunc("POST /api/v1/refund", s.handleRefund)
-	s.mux.HandleFunc("POST /api/v1/void", s.handleVoid)
-	s.mux.HandleFunc("POST /webhooks/{provider}", s.handleWebhook)
+	s.mux.HandleFunc("/health", s.handleHealth)
+	s.mux.HandleFunc("/providers", s.handleProviders)
+	s.mux.HandleFunc("/api/v1/tokenize", s.handleTokenize)
+	s.mux.HandleFunc("/api/v1/charge", s.handleCharge)
+	s.mux.HandleFunc("/api/v1/authorize", s.handleAuthorize)
+	s.mux.HandleFunc("/api/v1/capture", s.handleCapture)
+	s.mux.HandleFunc("/api/v1/refund", s.handleRefund)
+	s.mux.HandleFunc("/api/v1/void", s.handleVoid)
+	s.mux.HandleFunc("/webhooks/", s.handleWebhook)
 }
 
 // --- Handlers ---------------------------------------------------------------
@@ -87,6 +87,10 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleTokenize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req struct {
 		TenantID string             `json:"tenant_id"`
 		Provider pop.ProviderID     `json:"provider"`
@@ -110,6 +114,10 @@ func (s *Server) handleTokenize(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCharge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req pop.ChargeRequestExt
 	if err := decode(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -131,6 +139,10 @@ func (s *Server) handleCharge(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req pop.AuthorizeRequestExt
 	if err := decode(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -149,6 +161,10 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req pop.CaptureRequestExt
 	if err := decode(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -167,6 +183,10 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRefund(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req pop.RefundRequestExt
 	if err := decode(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -185,6 +205,10 @@ func (s *Server) handleRefund(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleVoid(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
 	var req pop.VoidRequestExt
 	if err := decode(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
@@ -203,7 +227,15 @@ func (s *Server) handleVoid(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
-	providerStr := r.PathValue("provider")
+	// Extraer provider del path: /webhooks/{provider}
+	// Go 1.21 no tiene PathValue, así que extraemos manualmente
+	path := r.URL.Path
+	prefix := "/webhooks/"
+	if !strings.HasPrefix(path, prefix) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid path")
+		return
+	}
+	providerStr := strings.TrimPrefix(path, prefix)
 	if providerStr == "" {
 		writeError(w, http.StatusBadRequest, "invalid_request", "provider missing in path")
 		return

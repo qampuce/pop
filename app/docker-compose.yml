@@ -5,18 +5,12 @@ services:
       dockerfile: Dockerfile
     container_name: pop-app
     ports:
-      # Puerto asignado por registry: 3006 → interno 8080 (Node.js server)
+      # Puerto asignado por registry: 3006 → interno 8080 (Go server)
       # URL pública: https://pop.qampuapp.com
       - "${PORT:-3006}:8080"
     environment:
       - PORT=8080
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 10s
     networks:
       - pop-net
 

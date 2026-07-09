@@ -64,22 +64,29 @@ type Event struct {
 // Verifier valida la firma/autenticidad de un webhook entrante.
 // Cada adapter implementa el suyo (HMAC SHA256, header signature, etc.).
 type Verifier interface {
-	// Verify devuelve el TenantID si la firma es válida, o error.
-	// El TenantID se obtiene típicamente del header/signature mapeado a
-	// la configuración del tenant (webhook secret).
-	Verify(ctx context.Context, headers http.Header, body []byte) (tenantID string, err error)
+	// Verify valida la firma usando el secreto dado.
+	Verify(body []byte, headers http.Header, secret string) error
 }
 
 // Normalizer traduce el payload crudo verificado a un Event estándar.
 type Normalizer interface {
-	Normalize(ctx context.Context, tctx *core.TenantContext, body []byte) (*Event, error)
+	// Normalize traduce el payload al formato canónico.
+	Normalize(body []byte) (*NormalizedEvent, error)
+}
+
+// NormalizedEvent es el resultado de normalizar un webhook.
+type NormalizedEvent struct {
+	Provider core.ProviderID `json:"provider"`
+	Type     string          `json:"type"`
+	Payload  map[string]any  `json:"payload"`
+	Raw      []byte          `json:"raw"`
 }
 
 // WebhookHandler combina verificación + normalización para un proveedor.
 type WebhookHandler struct {
-	Provider  core.ProviderID
-	Verifier  Verifier
-	Normalize Normalizer
+	Provider   core.ProviderID
+	Verifier   Verifier
+	Normalizer Normalizer
 }
 
 // Registry de handlers de webhook por proveedor.
@@ -93,11 +100,15 @@ func NewRegistry() *Registry {
 }
 
 // Register un handler para un proveedor.
-func (r *Registry) Register(h *WebhookHandler) {
-	if h == nil || h.Provider == "" {
+func (r *Registry) Register(provider core.ProviderID, verifier Verifier, normalizer Normalizer) {
+	if provider == "" || verifier == nil || normalizer == nil {
 		return
 	}
-	r.handlers[h.Provider] = h
+	r.handlers[provider] = &WebhookHandler{
+		Provider:   provider,
+		Verifier:   verifier,
+		Normalizer: normalizer,
+	}
 }
 
 // Process procesa una request HTTP entrante de webhook.
@@ -129,10 +140,12 @@ func (r *Registry) Process(
 	}
 	defer req.Body.Close()
 
-	tenantID, err := h.Verifier.Verify(ctx, req.Header, body)
-	if err != nil {
-		return nil, core.NewError(core.ErrWebhookSignature, core.CategoryAuth, provider,
-			fmt.Sprintf("webhook signature invalid: %v", err))
+	// Necesitamos resolver el tenant primero para obtener el webhook secret.
+	// Para esto, extraemos el tenant_id del request (header, query param, o payload).
+	// Por ahora, usamos un header X-Tenant-ID.
+	tenantID := req.Header.Get("X-Tenant-ID")
+	if tenantID == "" {
+		return nil, fmt.Errorf("pop: missing X-Tenant-ID header")
 	}
 
 	tctx, err := resolver.Resolve(ctx, tenantID, provider, mode)
@@ -140,14 +153,67 @@ func (r *Registry) Process(
 		return nil, fmt.Errorf("pop: resolve tenant for webhook: %w", err)
 	}
 
-	ev, err := h.Normalize.Normalize(ctx, tctx, body)
+	// Verificar firma con el webhook secret del tenant.
+	if err := h.Verifier.Verify(body, req.Header, tctx.WebhookSecret); err != nil {
+		return nil, core.NewError(core.ErrWebhookSignature, core.CategoryAuth, provider,
+			fmt.Sprintf("webhook signature invalid: %v", err))
+	}
+
+	// Normalizar payload.
+	nev, err := h.Normalizer.Normalize(body)
 	if err != nil {
 		return nil, core.NewError(core.ErrWebhookParse, core.CategoryGateway, provider,
 			fmt.Sprintf("webhook parse error: %v", err))
 	}
-	ev.Provider = provider
-	ev.TenantID = tenantID
+
+	// Construir Event completo.
+	ev := &Event{
+		ID:              fmt.Sprintf("%s|%s|%s", provider, nev.Type, tenantID),
+		Type:            EventType(nev.Type),
+		Provider:        provider,
+		TenantID:        tenantID,
+		ProviderEventID: extractEventID(nev.Payload),
+		CreatedAt:       time.Now().UTC(),
+		Raw:             body,
+	}
+
+	// Extraer campos comunes del payload si existen.
+	if paymentID, ok := nev.Payload["payment_id"].(string); ok {
+		ev.PaymentID = paymentID
+	}
+	if reference, ok := nev.Payload["reference"].(string); ok {
+		ev.Reference = reference
+	}
+	if status, ok := nev.Payload["status"].(string); ok {
+		ev.Status = core.PaymentStatus(status)
+	}
+	if amountMap, ok := nev.Payload["amount"].(map[string]any); ok {
+		if amount, ok := amountMap["amount"].(float64); ok {
+			ev.Amount.Amount = int64(amount)
+		}
+		if currency, ok := amountMap["currency"].(string); ok {
+			ev.Amount.Currency = currency
+		}
+	}
+
 	return ev, nil
+}
+
+// extractEventID intenta extraer un ID del payload normalizado.
+func extractEventID(payload map[string]any) string {
+	if id, ok := payload["id"].(string); ok && id != "" {
+		return id
+	}
+	if id, ok := payload["payment_id"].(string); ok && id != "" {
+		return id
+	}
+	if id, ok := payload["ticketNumber"].(string); ok && id != "" {
+		return id
+	}
+	if id, ok := payload["pspReference"].(string); ok && id != "" {
+		return id
+	}
+	return ""
 }
 
 // Default registry global (poblado por blank imports de adapters).

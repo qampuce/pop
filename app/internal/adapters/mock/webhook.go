@@ -1,25 +1,18 @@
 package mock
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
 	"time"
 
-	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/webhook"
 )
 
 // Webhook handler de referencia para el adapter mock.
 //
 // Esquema de firma (NO seguro, solo para tests/desarrollo):
-//   - Header X-Mock-Tenant:  tenantID destinatario.
-//   - Header X-Mock-Signature: debe coincidir con TenantContext.WebhookSecret
-//     del tenant resuelto. Como el Verifier se ejecuta ANTES de resolver el
-//     TenantContext, aceptamos el valor "mock_secret" como convenio del
-//     entorno de test, o cualquier valor si el header está presente.
+//   - Header X-Mock-Signature: debe coincidir con el webhook secret del tenant.
 //
 // Payload esperado (JSON):
 //
@@ -34,33 +27,24 @@ import (
 //	  "created_at":      "2026-01-02T15:04:05Z"
 //	}
 func init() {
-	webhook.Default.Register(&webhook.WebhookHandler{
-		Provider:  Provider,
-		Verifier:  &mockVerifier{},
-		Normalize: &mockNormalizer{},
-	})
+	webhook.Default.Register(Provider, &mockVerifier{}, &mockNormalizer{})
 }
 
-// mockVerifier acepta cualquier request con header X-Mock-Tenant presente.
-// El tenantID se toma del header. La firma se valida contra un secreto
-// convención "mock_secret" si está presente X-Mock-Signature.
+// mockVerifier acepta cualquier request con header X-Mock-Signature presente.
 type mockVerifier struct{}
 
-func (v *mockVerifier) Verify(ctx context.Context, h http.Header, body []byte) (string, error) {
-	tenantID := strings.TrimSpace(h.Get("X-Mock-Tenant"))
-	if tenantID == "" {
-		return "", fmt.Errorf("pop[mock]: missing X-Mock-Tenant header")
+func (v *mockVerifier) Verify(body []byte, headers http.Header, secret string) error {
+	sig := headers.Get("X-Mock-Signature")
+	if sig != "" && sig != secret {
+		return fmt.Errorf("invalid signature")
 	}
-	if sig := h.Get("X-Mock-Signature"); sig != "" && sig != "mock_secret" {
-		return "", fmt.Errorf("pop[mock]: invalid signature")
-	}
-	return tenantID, nil
+	return nil
 }
 
-// mockNormalizer traduce el payload JSON al Event canónico.
+// mockNormalizer traduce el payload JSON al formato canónico.
 type mockNormalizer struct{}
 
-func (n *mockNormalizer) Normalize(ctx context.Context, tctx *core.TenantContext, body []byte) (*webhook.Event, error) {
+func (n *mockNormalizer) Normalize(body []byte) (*webhook.NormalizedEvent, error) {
 	var raw struct {
 		Type            string `json:"type"`
 		PaymentID       string `json:"payment_id"`
@@ -72,7 +56,7 @@ func (n *mockNormalizer) Normalize(ctx context.Context, tctx *core.TenantContext
 		CreatedAt       string `json:"created_at"`
 	}
 	if err := json.Unmarshal(body, &raw); err != nil {
-		return nil, fmt.Errorf("pop[mock]: parse body: %w", err)
+		return nil, fmt.Errorf("parse body: %w", err)
 	}
 
 	createdAt, err := parseTime(raw.CreatedAt)
@@ -80,18 +64,24 @@ func (n *mockNormalizer) Normalize(ctx context.Context, tctx *core.TenantContext
 		return nil, err
 	}
 
-	ev := &webhook.Event{
-		ID:              fmt.Sprintf("mock|%s", raw.ProviderEventID),
-		Type:            webhook.EventType(raw.Type),
-		PaymentID:       raw.PaymentID,
-		Reference:       raw.Reference,
-		Status:          core.PaymentStatus(raw.Status),
-		Amount:          core.Money{Amount: raw.Amount, Currency: raw.Currency},
-		ProviderEventID: raw.ProviderEventID,
-		CreatedAt:       createdAt,
-		Raw:             append([]byte(nil), body...),
+	payload := map[string]any{
+		"provider":         Provider,
+		"type":             raw.Type,
+		"payment_id":       raw.PaymentID,
+		"reference":        raw.Reference,
+		"status":           raw.Status,
+		"amount":           raw.Amount,
+		"currency":         raw.Currency,
+		"provider_event_id": raw.ProviderEventID,
+		"created_at":       createdAt,
 	}
-	return ev, nil
+
+	return &webhook.NormalizedEvent{
+		Provider: Provider,
+		Type:     raw.Type,
+		Payload:  payload,
+		Raw:      body,
+	}, nil
 }
 
 func parseTime(s string) (time.Time, error) {
@@ -100,7 +90,7 @@ func parseTime(s string) (time.Time, error) {
 	}
 	t, err := time.Parse(time.RFC3339, s)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("pop[mock]: invalid created_at: %w", err)
+		return time.Time{}, fmt.Errorf("invalid created_at: %w", err)
 	}
 	return t.UTC(), nil
 }

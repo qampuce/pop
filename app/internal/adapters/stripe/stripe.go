@@ -58,11 +58,7 @@ const (
 
 func init() {
 	factory.Default.Register(Provider, Caps, New)
-	webhook.Default.Register(&webhook.WebhookHandler{
-		Provider:  Provider,
-		Verifier:  &stripeVerifier{},
-		Normalize: &stripeNormalizer{},
-	})
+	webhook.Default.Register(Provider, &stripeVerifier{}, &stripeNormalizer{})
 }
 
 // Adapter implementa core.Gateway contra Stripe.

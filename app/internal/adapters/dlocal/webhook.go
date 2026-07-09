@@ -2,17 +2,13 @@
 package dlocal
 
 import (
-	"bytes"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"time"
 
-	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/webhook"
 )
 
@@ -20,18 +16,10 @@ import (
 // dLocal envía la firma en header X-Signature = HMAC-SHA256(X-Date + body, secret_key).
 type dlocalVerifier struct{}
 
-func (v *dlocalVerifier) Verify(r *http.Request, secret string) error {
-	// Leer el body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		return fmt.Errorf("read body: %w", err)
-	}
-	// Restaurar el body para que pueda ser leído de nuevo
-	r.Body = io.NopCloser(bytes.NewReader(body))
-
+func (v *dlocalVerifier) Verify(body []byte, headers http.Header, secret string) error {
 	// Obtener headers
-	date := r.Header.Get("X-Date")
-	signature := r.Header.Get("X-Signature")
+	date := headers.Get("X-Date")
+	signature := headers.Get("X-Signature")
 
 	if date == "" || signature == "" {
 		return fmt.Errorf("missing X-Date or X-Signature header")
@@ -74,28 +62,26 @@ func (n *dlocalNormalizer) Normalize(body []byte) (*webhook.NormalizedEvent, err
 		return nil, fmt.Errorf("unknown dlocal event type: %s", wh.Type)
 	}
 
-	// Extraer datos del pago
-	var paymentID string
-	var amount core.Money
-	var status core.PaymentStatus
+	// Construir payload canónico.
+	payload := map[string]any{
+		"provider": Provider,
+		"id":       wh.ID,
+		"type":     wh.Type,
+		"createdAt": wh.CreatedAt,
+	}
 
 	if wh.Data != nil {
-		paymentID = wh.Data.ID
-		amount = core.Money{
-			Amount:   int64(wh.Data.Amount * 100),
-			Currency: wh.Data.Currency,
-		}
-		status = mapPaymentStatus(wh.Data.Status)
+		payload["payment_id"] = wh.Data.ID
+		payload["status"] = wh.Data.Status
+		payload["amount"] = wh.Data.Amount
+		payload["currency"] = wh.Data.Currency
 	}
 
 	return &webhook.NormalizedEvent{
-		Provider:     Provider,
-		EventType:    evtType,
-		PaymentID:    paymentID,
-		Status:       status,
-		Amount:       amount,
-		Raw:          wh,
-		ProcessedAt:  time.Now().UTC(),
+		Provider: Provider,
+		Type:     evtType,
+		Payload:  payload,
+		Raw:      body,
 	}, nil
 }
 
@@ -118,28 +104,6 @@ func mapEventType(t string) string {
 		return "refund.failed"
 	default:
 		return ""
-	}
-}
-
-// mapPaymentStatus traduce estados de pago dLocal a PaymentStatus estándar.
-func mapPaymentStatus(s string) core.PaymentStatus {
-	switch s {
-	case "PAID":
-		return core.StatusCaptured
-	case "AUTHORIZED":
-		return core.StatusAuthorized
-	case "PENDING":
-		return core.StatusPending
-	case "REJECTED":
-		return core.StatusFailed
-	case "CANCELLED":
-		return core.StatusVoided
-	case "REFUNDED":
-		return core.StatusRefunded
-	case "PARTIALLY_REFUNDED":
-		return core.StatusPartiallyRefunded
-	default:
-		return core.StatusFailed
 	}
 }
 

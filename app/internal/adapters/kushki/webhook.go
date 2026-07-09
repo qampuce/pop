@@ -10,12 +10,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
-	"strconv"
-	"strings"
 
-	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/webhook"
 )
 
@@ -149,42 +145,4 @@ func ParseAmount(payload map[string]any) (int64, string, error) {
 		return 0, "", fmt.Errorf("missing currency in payload")
 	}
 	return int64(amount * 100), currency, nil
-}
-
-// --- HTTP handler para el server ---
-
-// HandleWebhook es el handler HTTP para webhooks de Kushki.
-// Lee el body, verifica la firma, normaliza el evento y lo procesa.
-func HandleWebhook(w http.ResponseWriter, r *http.Request, secret string, processor webhook.Processor) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "read body", http.StatusBadRequest)
-		return
-	}
-
-	verifier := &kushkiVerifier{}
-	if err := verifier.Verify(body, r.Header, secret); err != nil {
-		http.Error(w, "invalid signature", http.StatusUnauthorized)
-		return
-	}
-
-	normalizer := &kushkiNormalizer{}
-	evt, err := normalizer.Normalize(body)
-	if err != nil {
-		http.Error(w, "normalize webhook", http.StatusBadRequest)
-		return
-	}
-
-	if err := processor(evt); err != nil {
-		http.Error(w, "process webhook", http.StatusInternalServerError)
-		return
-	}
-
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("OK"))
 }

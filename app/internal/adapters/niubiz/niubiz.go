@@ -26,7 +26,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -66,11 +65,7 @@ const (
 
 func init() {
 	factory.Default.Register(Provider, Caps, New)
-	webhook.Default.Register(&webhook.WebhookHandler{
-		Provider:  Provider,
-		Verifier:  &niubizVerifier{},
-		Normalize: &niubizNormalizer{},
-	})
+	webhook.Default.Register(Provider, &niubizVerifier{}, &niubizNormalizer{})
 }
 
 // Adapter implementa core.Gateway contra Niubiz.

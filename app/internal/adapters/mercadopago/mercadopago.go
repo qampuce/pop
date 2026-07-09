@@ -71,11 +71,7 @@ const (
 
 func init() {
 	factory.Default.Register(Provider, Caps, New)
-	webhook.Default.Register(&webhook.WebhookHandler{
-		Provider:  Provider,
-		Verifier:  &mpVerifier{},
-		Normalize: &mpNormalizer{},
-	})
+	webhook.Default.Register(Provider, &mpVerifier{}, &mpNormalizer{})
 }
 
 // Adapter implementa core.Gateway contra Mercado Pago.

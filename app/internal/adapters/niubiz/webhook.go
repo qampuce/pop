@@ -1,7 +1,6 @@
 package niubiz
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/webhook"
 )
 
@@ -22,24 +20,16 @@ import (
 // X-Signature: hmac-sha256=HEX(timestamp + body)
 type niubizVerifier struct{}
 
-func (v *niubizVerifier) Verify(ctx context.Context, headers http.Header, body []byte) (string, error) {
-	secret := headers.Get("X-Niubiz-Webhook-Secret")
-	if secret == "" {
-		return "", core.NewError(core.ErrWebhookSignature, core.CategoryGateway, Provider,
-			"missing X-Niubiz-Webhook-Secret header")
-	}
-
+func (v *niubizVerifier) Verify(body []byte, headers http.Header, secret string) error {
 	sigHeader := headers.Get("X-Signature")
 	if sigHeader == "" {
-		return "", core.NewError(core.ErrWebhookSignature, core.CategoryGateway, Provider,
-			"missing X-Signature header")
+		return fmt.Errorf("missing X-Signature header")
 	}
 
 	// Extraer timestamp y firma del header.
 	// Formato: hmac-sha256=HEX(timestamp + body)
 	if !strings.HasPrefix(sigHeader, "hmac-sha256=") {
-		return "", core.NewError(core.ErrWebhookSignature, core.CategoryGateway, Provider,
-			"invalid signature format")
+		return fmt.Errorf("invalid signature format")
 	}
 
 	sig := strings.TrimPrefix(sigHeader, "hmac-sha256=")
@@ -51,23 +41,16 @@ func (v *niubizVerifier) Verify(ctx context.Context, headers http.Header, body [
 	expectedSig := hex.EncodeToString(mac.Sum(nil))
 
 	if !hmac.Equal([]byte(sig), []byte(expectedSig)) {
-		return "", core.NewError(core.ErrWebhookSignature, core.CategoryGateway, Provider,
-			"signature mismatch")
+		return fmt.Errorf("signature mismatch")
 	}
 
-	tenantID := headers.Get("X-Niubiz-Tenant")
-	if tenantID == "" {
-		return "", core.NewError(core.ErrWebhookSignature, core.CategoryGateway, Provider,
-			"missing X-Niubiz-Tenant header")
-	}
-
-	return tenantID, nil
+	return nil
 }
 
 // niubizNormalizer normaliza eventos de webhook de Niubiz al formato estándar.
 type niubizNormalizer struct{}
 
-func (n *niubizNormalizer) Normalize(ctx context.Context, tctx *core.TenantContext, body []byte) (*webhook.Event, error) {
+func (n *niubizNormalizer) Normalize(body []byte) (*webhook.NormalizedEvent, error) {
 	var env struct {
 		ID        string          `json:"id"`
 		Type      string          `json:"type"`
@@ -75,140 +58,40 @@ func (n *niubizNormalizer) Normalize(ctx context.Context, tctx *core.TenantConte
 		Data      json.RawMessage `json:"data"`
 	}
 	if err := json.Unmarshal(body, &env); err != nil {
-		return nil, core.NewError(core.ErrWebhookParse, core.CategoryGateway, Provider,
-			fmt.Sprintf("unmarshal webhook: %v", err))
+		return nil, fmt.Errorf("unmarshal webhook: %v", err)
 	}
 
-	// Parsear el payload según el tipo de evento.
-	var evType webhook.EventType
-	var status core.PaymentStatus
-	var paymentID string
-	var amount core.Money
-	var reference string
-
+	// Mapear tipo de evento Niubiz → evento canónico.
+	var eventType string
 	switch env.Type {
 	case "payment.success":
-		evType = webhook.EventPaymentCaptured
-		status = core.StatusCaptured
-		var pay struct {
-			ID        string  `json:"id"`
-			Amount    float64 `json:"amount"`
-			Currency  string  `json:"currency"`
-			OrderID   string  `json:"order_id"`
-			CreatedAt int64   `json:"created_at"`
-		}
-		if err := json.Unmarshal(env.Data, &pay); err != nil {
-			return nil, core.NewError(core.ErrWebhookParse, core.CategoryGateway, Provider,
-				fmt.Sprintf("unmarshal payment data: %v", err))
-		}
-		paymentID = pay.ID
-		amount = core.Money{Amount: int64(pay.Amount * 100), Currency: pay.Currency}
-		reference = pay.OrderID
-
+		eventType = "payment.captured"
 	case "payment.authorized":
-		evType = webhook.EventPaymentAuthorized
-		status = core.StatusAuthorized
-		var pay struct {
-			ID        string  `json:"id"`
-			Amount    float64 `json:"amount"`
-			Currency  string  `json:"currency"`
-			OrderID   string  `json:"order_id"`
-			CreatedAt int64  `json:"created_at"`
-		}
-		if err := json.Unmarshal(env.Data, &pay); err != nil {
-			return nil, core.NewError(core.ErrWebhookParse, core.CategoryGateway, Provider,
-				fmt.Sprintf("unmarshal payment data: %v", err))
-		}
-		paymentID = pay.ID
-		amount = core.Money{Amount: int64(pay.Amount * 100), Currency: pay.Currency}
-		reference = pay.OrderID
-
+		eventType = "payment.authorized"
 	case "payment.failed":
-		evType = webhook.EventPaymentFailed
-		status = core.StatusFailed
-		var pay struct {
-			ID        string  `json:"id"`
-			Amount    float64 `json:"amount"`
-			Currency  string  `json:"currency"`
-			OrderID   string  `json:"order_id"`
-			CreatedAt int64  `json:"created_at"`
-		}
-		if err := json.Unmarshal(env.Data, &pay); err != nil {
-			return nil, core.NewError(core.ErrWebhookParse, core.CategoryGateway, Provider,
-				fmt.Sprintf("unmarshal payment data: %v", err))
-		}
-		paymentID = pay.ID
-		amount = core.Money{Amount: int64(pay.Amount * 100), Currency: pay.Currency}
-		reference = pay.OrderID
-
+		eventType = "payment.failed"
 	case "payment.voided":
-		evType = webhook.EventPaymentVoided
-		status = core.StatusVoided
-		var pay struct {
-			ID        string  `json:"id"`
-			OrderID   string  `json:"order_id"`
-			CreatedAt int64  `json:"created_at"`
-		}
-		if err := json.Unmarshal(env.Data, &pay); err != nil {
-			return nil, core.NewError(core.ErrWebhookParse, core.CategoryGateway, Provider,
-				fmt.Sprintf("unmarshal payment data: %v", err))
-		}
-		paymentID = pay.ID
-		reference = pay.OrderID
-
+		eventType = "payment.voided"
 	case "refund.success":
-		evType = webhook.EventRefundCompleted
-		status = core.StatusRefunded
-		var ref struct {
-			ID        string  `json:"id"`
-			PaymentID string  `json:"payment_id"`
-			Amount    float64 `json:"amount"`
-			Currency  string  `json:"currency"`
-			CreatedAt int64  `json:"created_at"`
-		}
-		if err := json.Unmarshal(env.Data, &ref); err != nil {
-			return nil, core.NewError(core.ErrWebhookParse, core.CategoryGateway, Provider,
-				fmt.Sprintf("unmarshal refund data: %v", err))
-		}
-		paymentID = ref.PaymentID
-		amount = core.Money{Amount: int64(ref.Amount * 100), Currency: ref.Currency}
-		reference = ref.PaymentID
-
+		eventType = "refund.completed"
 	case "refund.failed":
-		evType = webhook.EventRefundFailed
-		status = core.StatusFailed
-		var ref struct {
-			ID        string  `json:"id"`
-			PaymentID string  `json:"payment_id"`
-			Amount    float64 `json:"amount"`
-			Currency  string  `json:"currency"`
-			CreatedAt int64  `json:"created_at"`
-		}
-		if err := json.Unmarshal(env.Data, &ref); err != nil {
-			return nil, core.NewError(core.ErrWebhookParse, core.CategoryGateway, Provider,
-				fmt.Sprintf("unmarshal refund data: %v", err))
-		}
-		paymentID = ref.PaymentID
-		amount = core.Money{Amount: int64(ref.Amount * 100), Currency: ref.Currency}
-		reference = ref.PaymentID
-
+		eventType = "refund.failed"
 	default:
-		// Evento desconocido: pasar como pending para auditoría.
-		evType = webhook.EventPaymentPending
-		status = core.StatusPending
+		eventType = env.Type
 	}
 
-	return &webhook.Event{
-		Type:            evType,
-		ProviderEventID: env.ID,
-		PaymentID:       paymentID,
-		Status:          status,
-		Amount:          amount,
-		Provider:        Provider,
-		TenantID:        tctx.TenantID,
-		Country:         tctx.Country,
-		Reference:       reference,
-		CreatedAt:        time.Unix(env.CreatedAt, 0).UTC(),
-		Raw:             body,
+	// Construir payload canónico.
+	payload := map[string]any{
+		"provider": Provider,
+		"id":        env.ID,
+		"type":      env.Type,
+		"createdAt": env.CreatedAt,
+	}
+
+	return &webhook.NormalizedEvent{
+		Provider: Provider,
+		Type:     eventType,
+		Payload:  payload,
+		Raw:      body,
 	}, nil
 }

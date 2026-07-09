@@ -1,7 +1,6 @@
 package stripe
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/webhook"
 )
 
@@ -23,39 +21,23 @@ import (
 //	t=1614556800,v1=abc123...,v0=def456...
 //
 // La firma v1 es HMAC-SHA256(webhook_secret, "${t}.${body}"). Se compara en
-// tiempo constante. El tenantID se obtiene del campo Account del evento (si
-// está disponible) o se deja vacío para que el caller lo resuelva por contexto
-// (típicamente el path de la URL del webhook incluye el tenant).
-//
-// Como el Verifier se ejecuta ANTES de resolver el TenantContext, no tenemos
-// acceso al webhook_secret del tenant en este punto. Por eso el Verifier
-// acepta el secreto vía el header X-Stripe-Webhook-Secret (inyectado por el
-// HTTP server del SaaS que sí conoce el tenant por la URL) o, en su defecto,
-// confía en el secreto resuelto después. Para mantener el contrato del SDK
-// (Verify devuelve tenantID), usamos el header X-Stripe-Tenant si está
-// presente; si no, devolvemos un tenantID placeholder que el caller puede
-// reasignar.
+// tiempo constante.
 type stripeVerifier struct{}
 
-func (v *stripeVerifier) Verify(ctx context.Context, h http.Header, body []byte) (string, error) {
-	sigHeader := h.Get("Stripe-Signature")
+func (v *stripeVerifier) Verify(body []byte, headers http.Header, secret string) error {
+	sigHeader := headers.Get("Stripe-Signature")
 	if sigHeader == "" {
-		return "", fmt.Errorf("pop[stripe]: missing Stripe-Signature header")
-	}
-
-	secret := h.Get("X-Stripe-Webhook-Secret")
-	if secret == "" {
-		return "", fmt.Errorf("pop[stripe]: missing X-Stripe-Webhook-Secret header (inject from SaaS HTTP server)")
+		return fmt.Errorf("missing Stripe-Signature header")
 	}
 
 	ts, sigs, err := parseSignatureHeader(sigHeader)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	// Tolerancia de replay (5 min).
 	if age := time.Since(time.Unix(ts, 0)); age > 5*time.Minute || age < -5*time.Minute {
-		return "", fmt.Errorf("pop[stripe]: signature timestamp out of tolerance")
+		return fmt.Errorf("signature timestamp out of tolerance")
 	}
 
 	mac := hmac.New(sha256.New, []byte(secret))
@@ -70,11 +52,10 @@ func (v *stripeVerifier) Verify(ctx context.Context, h http.Header, body []byte)
 		}
 	}
 	if !matched {
-		return "", fmt.Errorf("pop[stripe]: signature mismatch")
+		return fmt.Errorf("signature mismatch")
 	}
 
-	tenantID := strings.TrimSpace(h.Get("X-Stripe-Tenant"))
-	return tenantID, nil
+	return nil
 }
 
 // parseSignatureHeader extrae t y la lista de firmas v1 del header.
@@ -104,61 +85,58 @@ func parseSignatureHeader(header string) (ts int64, v1s []string, err error) {
 	return ts, v1s, nil
 }
 
-// stripeNormalizer traduce el payload del evento de Stripe al Event canónico.
+// stripeNormalizer traduce el payload del evento de Stripe al formato canónico.
 type stripeNormalizer struct{}
 
-func (n *stripeNormalizer) Normalize(ctx context.Context, tctx *core.TenantContext, body []byte) (*webhook.Event, error) {
+func (n *stripeNormalizer) Normalize(body []byte) (*webhook.NormalizedEvent, error) {
 	var ev stripeWebhookEvent
 	if err := json.Unmarshal(body, &ev); err != nil {
-		return nil, fmt.Errorf("pop[stripe]: parse event: %w", err)
+		return nil, fmt.Errorf("parse event: %w", err)
 	}
 
-	pi := ev.Data.Object
-	out := &webhook.Event{
-		ID:              fmt.Sprintf("stripe|%s", ev.ID),
-		Type:            mapEventType(ev.Type),
-		Provider:        Provider,
-		TenantID:        tctx.TenantID,
-		PaymentID:       pi.ID,
-		ProviderEventID: ev.ID,
-		CreatedAt:       time.Unix(ev.Created, 0).UTC(),
-		Raw:             append([]byte(nil), body...),
+	// Mapear tipo de evento Stripe → evento canónico.
+	eventType := mapStripeEventType(ev.Type)
+
+	// Construir payload canónico.
+	payload := map[string]any{
+		"provider": Provider,
+		"type":     ev.Type,
+		"id":       ev.ID,
+		"object":   ev.Data.Object.Object,
+		"created":  ev.Created,
 	}
-	out.Status = mapPIStatus(pi.Status)
-	out.Amount = core.Money{Amount: pi.Amount, Currency: strings.ToUpper(pi.Currency)}
-	out.Reference = pi.Description
-	if out.Reference == "" {
-		// Stripe no siempre propaga el reference; intentamos metadata.
-		if ref, ok := pi.Metadata["reference"]; ok {
-			out.Reference = ref
-		}
-	}
-	return out, nil
+
+	return &webhook.NormalizedEvent{
+		Provider: Provider,
+		Type:     eventType,
+		Payload:  payload,
+		Raw:      body,
+	}, nil
 }
 
-// mapEventType traduce tipos de evento de Stripe al enum canónico.
-func mapEventType(t string) webhook.EventType {
+// mapStripeEventType traduce tipos de evento de Stripe al evento canónico.
+func mapStripeEventType(t string) string {
 	switch t {
 	case "payment_intent.succeeded":
-		return webhook.EventPaymentCaptured
+		return "payment.captured"
 	case "payment_intent.payment_failed":
-		return webhook.EventPaymentFailed
+		return "payment.failed"
 	case "payment_intent.canceled":
-		return webhook.EventPaymentVoided
+		return "payment.voided"
 	case "payment_intent.requires_action", "payment_intent.processing":
-		return webhook.EventPaymentPending
+		return "payment.pending"
 	case "payment_intent.amount_capturable_updated":
-		return webhook.EventPaymentAuthorized
+		return "payment.authorized"
 	case "charge.refunded":
-		return webhook.EventRefundCompleted
+		return "refund.completed"
 	case "charge.refund.updated":
-		return webhook.EventRefundCompleted
+		return "refund.completed"
 	case "charge.dispute.created":
-		return webhook.EventDisputeOpened
+		return "dispute.opened"
 	case "charge.dispute.closed", "charge.dispute.funds_withdrawn":
-		return webhook.EventDisputeResolved
+		return "dispute.resolved"
 	default:
-		return webhook.EventType(t) // passthrough para eventos no mapeados
+		return t
 	}
 }
 
@@ -180,4 +158,5 @@ type stripeWebhookPI struct {
 	Currency    string            `json:"currency"`
 	Description string            `json:"description"`
 	Metadata    map[string]string `json:"metadata"`
+	Object      string            `json:"object"`
 }

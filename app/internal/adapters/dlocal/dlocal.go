@@ -29,7 +29,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -74,11 +73,7 @@ const (
 
 func init() {
 	factory.Default.Register(Provider, Caps, New)
-	webhook.Default.Register(&webhook.WebhookHandler{
-		Provider:  Provider,
-		Verifier:  &dlocalVerifier{},
-		Normalize: &dlocalNormalizer{},
-	})
+	webhook.Default.Register(Provider, &dlocalVerifier{}, &dlocalNormalizer{})
 }
 
 // Adapter implementa core.Gateway contra dLocal.

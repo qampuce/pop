@@ -1,7 +1,6 @@
 package mercadopago
 
 import (
-	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/webhook"
 )
 
@@ -24,40 +22,32 @@ import (
 //
 // La firma v1 es HMAC-SHA256(webhook_secret, "ts:<ts>:data.id:<dataId>")
 // donde dataId es el ID del recurso notificado (extraído del query param
-// data.id o del body). El secreto se inyecta vía X-MP-Webhook-Secret (el
-// HTTP server del SaaS lo conoce por la URL del webhook).
-//
-// El tenantID se obtiene del header X-MP-Tenant (inyectado por el SaaS).
+// data.id o del body).
 type mpVerifier struct{}
 
-func (v *mpVerifier) Verify(ctx context.Context, h http.Header, body []byte) (string, error) {
-	sigHeader := h.Get("X-Signature")
+func (v *mpVerifier) Verify(body []byte, headers http.Header, secret string) error {
+	sigHeader := headers.Get("X-Signature")
 	if sigHeader == "" {
 		// Algunas integraciones viejas usan x-signature en lowercase.
-		sigHeader = h.Get("x-signature")
+		sigHeader = headers.Get("x-signature")
 	}
 	if sigHeader == "" {
-		return "", fmt.Errorf("pop[mercadopago]: missing X-Signature header")
-	}
-
-	secret := h.Get("X-MP-Webhook-Secret")
-	if secret == "" {
-		return "", fmt.Errorf("pop[mercadopago]: missing X-MP-Webhook-Secret header (inject from SaaS HTTP server)")
+		return fmt.Errorf("missing X-Signature header")
 	}
 
 	ts, sigs, err := parseMPSignature(sigHeader)
 	if err != nil {
-		return "", err
+		return err
 	}
 
 	// Tolerancia de replay (5 min).
 	if age := time.Since(time.Unix(ts, 0)); age > 5*time.Minute || age < -5*time.Minute {
-		return "", fmt.Errorf("pop[mercadopago]: signature timestamp out of tolerance")
+		return fmt.Errorf("signature timestamp out of tolerance")
 	}
 
 	// data.id: viene en el query param ?data.id=... o en el body como
 	// resource o data.id. MP firma "ts:<ts>:data.id:<dataId>".
-	dataID := h.Get("X-MP-Data-ID")
+	dataID := headers.Get("X-MP-Data-ID")
 	if dataID == "" {
 		dataID = extractDataID(body)
 	}
@@ -75,11 +65,10 @@ func (v *mpVerifier) Verify(ctx context.Context, h http.Header, body []byte) (st
 		}
 	}
 	if !matched {
-		return "", fmt.Errorf("pop[mercadopago]: signature mismatch")
+		return fmt.Errorf("signature mismatch")
 	}
 
-	tenantID := strings.TrimSpace(h.Get("X-MP-Tenant"))
-	return tenantID, nil
+	return nil
 }
 
 // parseMPSignature extrae ts y la lista de firmas v1 del header.
@@ -135,24 +124,13 @@ func extractDataID(body []byte) string {
 	return ""
 }
 
-// mpNormalizer traduce el payload del evento de Mercado Pago al Event canónico.
-//
-// MP envía webhooks con formato:
-//
-//	{"action": "payment.updated", "api_version": "v1", "data": {"id": "123"},
-//	 "date_created": "...", "id": <event_id>, "type": "payment", "user_id": <integrator_id>}
-//
-// El payload NO incluye el payment completo: el SaaS debe hacer un GET
-// /v1/payments/:id para obtener el estado. Para mantener el contrato del SDK
-// (Normalize devuelve un Event con status/amount), este normalizer hace un
-// best-effort con los campos disponibles y deja status=pending si falta info.
-// El caller puede hacer el GET posterior y re-normalizar si necesita detalle.
+// mpNormalizer traduce el payload del evento de Mercado Pago al formato canónico.
 type mpNormalizer struct{}
 
-func (n *mpNormalizer) Normalize(ctx context.Context, tctx *core.TenantContext, body []byte) (*webhook.Event, error) {
+func (n *mpNormalizer) Normalize(body []byte) (*webhook.NormalizedEvent, error) {
 	var ev mpWebhookEvent
 	if err := json.Unmarshal(body, &ev); err != nil {
-		return nil, fmt.Errorf("pop[mercadopago]: parse event: %w", err)
+		return nil, fmt.Errorf("parse event: %w", err)
 	}
 
 	paymentID := ev.Data.ID
@@ -160,51 +138,53 @@ func (n *mpNormalizer) Normalize(ctx context.Context, tctx *core.TenantContext, 
 		paymentID = extractDataID(body)
 	}
 
-	out := &webhook.Event{
-		ID:              fmt.Sprintf("mercadopago|%s", strconv.FormatInt(ev.ID, 10)),
-		Type:            mapMPAction(ev.Action),
-		Provider:        Provider,
-		TenantID:        tctx.TenantID,
-		PaymentID:       paymentID,
-		ProviderEventID: strconv.FormatInt(ev.ID, 10),
-		CreatedAt:       parseMPDate(ev.DateCreated),
-		Raw:             append([]byte(nil), body...),
+	// Mapear acción MP → evento canónico.
+	eventType := mapMPAction(ev.Action)
+
+	// Construir payload canónico.
+	payload := map[string]any{
+		"provider":   Provider,
+		"action":     ev.Action,
+		"payment_id": paymentID,
+		"event_id":   ev.ID,
+		"type":       ev.Type,
 	}
-	// El webhook de MP no incluye status/amount; el caller debe hacer GET.
-	out.Status = core.StatusPending
-	return out, nil
+
+	return &webhook.NormalizedEvent{
+		Provider: Provider,
+		Type:     eventType,
+		Payload:  payload,
+		Raw:      body,
+	}, nil
 }
 
-// mapMPAction traduce actions de MP al enum canónico.
-func mapMPAction(action string) webhook.EventType {
+// mapMPAction traduce actions de MP al evento canónico.
+func mapMPAction(action string) string {
 	switch action {
 	case "payment.created", "payment.updated":
-		// MP no distingue authorized/captured en el action; el caller debe
-		// hacer GET para resolver el status real. Mapeamos a pending como
-		// señal de "necesita resolución".
-		return webhook.EventPaymentPending
+		return "payment.pending"
 	case "payment.approved":
-		return webhook.EventPaymentCaptured
+		return "payment.captured"
 	case "payment.rejected":
-		return webhook.EventPaymentFailed
+		return "payment.failed"
 	case "payment.cancelled":
-		return webhook.EventPaymentVoided
+		return "payment.voided"
 	case "payment.refunded":
-		return webhook.EventRefundCompleted
+		return "refund.completed"
 	case "payment.partial_refunded":
-		return webhook.EventRefundCompleted
+		return "refund.completed"
 	case "payment.authorized":
-		return webhook.EventPaymentAuthorized
+		return "payment.authorized"
 	case "payment.in_process":
-		return webhook.EventPaymentPending
+		return "payment.pending"
 	case "merchant_order.created", "merchant_order.updated":
-		return webhook.EventPaymentPending
+		return "payment.pending"
 	case "dispute.created", "dispute.opened":
-		return webhook.EventDisputeOpened
+		return "dispute.opened"
 	case "dispute.closed", "dispute.resolved":
-		return webhook.EventDisputeResolved
+		return "dispute.resolved"
 	default:
-		return webhook.EventType(action)
+		return action
 	}
 }
 
