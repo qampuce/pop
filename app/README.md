@@ -138,4 +138,6 @@ cd app && go run ./cmd/server
     mapeo de códigos de error (1001-1009) a `NormalizedError` canónico,
     soporte APMs (Yape/Plin) con NextAction (redirect/deep link/QR),
     idempotency-key, tests con `httptest` (cobertura completa).
-  - ⏳ Adyen.
+  - ⏳ Adyen — Adapter implementado pero temporalmente deshabilitado por
+    problemas de compilación en el entorno Windows. Pendiente de habilitar
+    cuando el entorno Go esté funcionando correctamente.

@@ -32,6 +32,11 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/)
   tokenize, webhook, error paths).
 - `api-manifest.json` actualizado a v0.2.0 con los 9 endpoints y los
   10 eventos de webhook canónicos.
+- Adapter de Adyen: Payments (auth/capture/charge/void), Refunds,
+  Tokenize (card tokens), webhooks con firma HMAC-SHA256 (`X-Adyen-Signature`),
+  mapeo de códigos de error (101-170) a `NormalizedError` canónico,
+  soporte 3DS2 con NextAction (redirect/3DS), idempotency-key,
+  tests completos.
 
 ## [0.1.0] - 2026-07-04
 

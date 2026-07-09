@@ -31,6 +31,7 @@ import (
 	_ "github.com/qampu/pop/internal/adapters/kushki"
 	_ "github.com/qampu/pop/internal/adapters/dlocal"
 	_ "github.com/qampu/pop/internal/adapters/niubiz"
+	// _ "github.com/qampu/pop/internal/adapters/adyen" // Temporalmente deshabilitado
 )
 
 func main() {
