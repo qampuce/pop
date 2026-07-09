@@ -22,6 +22,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -29,18 +30,24 @@ import (
 
 	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/factory"
+	"github.com/qampu/pop/internal/store"
 	"github.com/qampu/pop/pkg/pop"
 )
 
 // Server expone el SDK pop.Client sobre HTTP.
 type Server struct {
 	client *pop.Client
+	store  *store.Store
 	mux    *http.ServeMux
 }
 
 // New construye un Server sobre el Client dado.
-func New(c *pop.Client) *Server {
-	s := &Server{client: c, mux: http.NewServeMux()}
+// Si store es nil, se crea uno nuevo in-memory.
+func New(c *pop.Client, st *store.Store) *Server {
+	if st == nil {
+		st = store.New()
+	}
+	s := &Server{client: c, store: st, mux: http.NewServeMux()}
 	s.routes()
 	return s
 }
@@ -57,6 +64,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/capture", s.handleCapture)
 	s.mux.HandleFunc("/api/v1/refund", s.handleRefund)
 	s.mux.HandleFunc("/api/v1/void", s.handleVoid)
+	s.mux.HandleFunc("/api/v1/payments", s.handlePayments)
+	s.mux.HandleFunc("/api/v1/payments/", s.handlePayments)
 	s.mux.HandleFunc("/webhooks/", s.handleWebhook)
 }
 
@@ -66,7 +75,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "ok",
 		"service":  "pop",
-		"version":  "0.2.0",
+		"version":  "0.3.0",
 		"uptime_s": int64(time.Since(startTime).Seconds()),
 	})
 }
@@ -135,6 +144,7 @@ func (s *Server) handleCharge(w http.ResponseWriter, r *http.Request) {
 		writeGatewayError(w, err)
 		return
 	}
+	s.store.RecordPayment("charge", res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -157,6 +167,7 @@ func (s *Server) handleAuthorize(w http.ResponseWriter, r *http.Request) {
 		writeGatewayError(w, err)
 		return
 	}
+	s.store.RecordPayment("authorize", res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -179,6 +190,7 @@ func (s *Server) handleCapture(w http.ResponseWriter, r *http.Request) {
 		writeGatewayError(w, err)
 		return
 	}
+	s.store.RecordPayment("capture", res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -223,6 +235,7 @@ func (s *Server) handleVoid(w http.ResponseWriter, r *http.Request) {
 		writeGatewayError(w, err)
 		return
 	}
+	s.store.RecordPayment("void", res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -251,6 +264,68 @@ func (s *Server) handleWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, ev)
+}
+
+func (s *Server) handlePayments(w http.ResponseWriter, r *http.Request) {
+	// Extraer ID del path: /api/v1/payments/{id}
+	path := r.URL.Path
+	prefix := "/api/v1/payments/"
+	
+	if !strings.HasPrefix(path, prefix) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid path")
+		return
+	}
+	
+	id := strings.TrimPrefix(path, prefix)
+	
+	// Si ID está vacío, es /api/v1/payments/ → listar
+	if id == "" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		
+		// Parsear query params
+		query := r.URL.Query()
+		filter := store.Filter{
+			TenantID: query.Get("tenant_id"),
+			Status:   core.PaymentStatus(query.Get("status")),
+			Provider: core.ProviderID(query.Get("provider")),
+			Reference: query.Get("reference"),
+		}
+		
+		// Parsear limit
+		if limitStr := query.Get("limit"); limitStr != "" {
+			var limit int
+			if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil {
+				filter.Limit = limit
+			}
+		}
+		
+		records := s.store.ListPayments(filter)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"payments": records,
+			"count":    len(records),
+		})
+		return
+	}
+	
+	// GET /api/v1/payments/{id} → obtener un payment específico
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	record, err := s.store.GetPayment(id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "payment not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, record)
 }
 
 // --- Helpers ----------------------------------------------------------------

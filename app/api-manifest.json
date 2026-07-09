@@ -1,7 +1,7 @@
 {
-  "version": "0.2.0",
+  "version": "0.3.0",
   "basePath": "/",
-  "description": "pop — orquestador de pagos multi-provider con routing inteligente, cascading y webhooks normalizados",
+  "description": "pop — orquestador de pagos multi-provider con routing inteligente, cascading, webhooks normalizados y store in-memory de operaciones",
   "endpoints": [
     {
       "method": "GET",
@@ -42,6 +42,16 @@
       "method": "POST",
       "path": "/api/v1/void",
       "description": "Cancela una autorización pendiente antes de su captura"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payments",
+      "description": "Lista pagos con filtros (tenant_id, status, provider, reference, limit)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/payments/{id}",
+      "description": "Obtiene un pago específico por ID"
     },
     {
       "method": "POST",

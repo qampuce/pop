@@ -22,6 +22,7 @@ import (
 
 	"github.com/qampu/pop/internal/api"
 	"github.com/qampu/pop/internal/core"
+	"github.com/qampu/pop/internal/store"
 	"github.com/qampu/pop/pkg/pop"
 
 	// Importar adapters para registro automático en factory.Default
@@ -59,7 +60,8 @@ func main() {
 		log.Fatalf("[pop] construir client: %v", err)
 	}
 
-	srv := api.New(client)
+	st := store.New()
+	srv := api.New(client, st)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()

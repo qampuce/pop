@@ -37,7 +37,7 @@ func newTestServer(t *testing.T) *Server {
 	if err != nil {
 		t.Fatalf("client: %v", err)
 	}
-	return New(client)
+	return New(client, nil)
 }
 
 func sha256Key(s string) []byte {
