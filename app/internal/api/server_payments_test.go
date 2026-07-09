@@ -247,3 +247,175 @@ func (m *mockCredentialResolver) List(ctx context.Context, tenantID string) ([]*
 func (m *mockCredentialResolver) Delete(ctx context.Context, tenantID string, provider core.ProviderID) error {
 	return nil
 }
+
+func TestHandleRefunds_List(t *testing.T) {
+	st := store.New()
+	client, _ := pop.New(pop.Config{
+		Credentials: &mockCredentialResolver{},
+	})
+	srv := New(client, st)
+
+	// Seed refunds de prueba
+	refund1 := &core.RefundResult{
+		ID:        "ref_test_1",
+		PaymentID: "pay_test_1",
+		TenantID:  "demo",
+		Status:    core.StatusRefunded,
+		Reference: "order_1",
+		Amount:    core.Money{Amount: 5000, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	refund2 := &core.RefundResult{
+		ID:        "ref_test_2",
+		PaymentID: "pay_test_2",
+		TenantID:  "demo",
+		Status:    core.StatusFailed,
+		Reference: "order_2",
+		Amount:    core.Money{Amount: 10000, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	st.RecordRefund(refund1)
+	st.RecordRefund(refund2)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/refunds/?tenant_id=demo", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var response struct {
+		Refunds []*store.RefundRecord `json:"refunds"`
+		Count   int                  `json:"count"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if response.Count != 2 {
+		t.Errorf("expected 2 refunds, got %d", response.Count)
+	}
+}
+
+func TestHandleRefunds_GetByID(t *testing.T) {
+	st := store.New()
+	client, _ := pop.New(pop.Config{
+		Credentials: &mockCredentialResolver{},
+	})
+	srv := New(client, st)
+
+	// Seed un refund de prueba
+	refund := &core.RefundResult{
+		ID:        "ref_test_123",
+		PaymentID: "pay_test_123",
+		TenantID:  "demo",
+		Status:    core.StatusRefunded,
+		Reference: "order_456",
+		Amount:    core.Money{Amount: 19990, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	st.RecordRefund(refund)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/refunds/ref_test_123", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var record store.RefundRecord
+	if err := json.NewDecoder(w.Body).Decode(&record); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if record.ID != "ref_test_123" {
+		t.Errorf("expected ID ref_test_123, got %s", record.ID)
+	}
+}
+
+func TestHandleRefunds_GetByID_NotFound(t *testing.T) {
+	st := store.New()
+	client, _ := pop.New(pop.Config{
+		Credentials: &mockCredentialResolver{},
+	})
+	srv := New(client, st)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/refunds/nonexistent", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusNotFound {
+		t.Errorf("expected status 404, got %d", w.Code)
+	}
+}
+
+func TestHandleMetrics(t *testing.T) {
+	st := store.New()
+	client, _ := pop.New(pop.Config{
+		Credentials: &mockCredentialResolver{},
+	})
+	srv := New(client, st)
+
+	// Seed payments de prueba
+	payment1 := &core.PaymentResult{
+		ID:        "pay_test_1",
+		TenantID:  "demo",
+		Status:    core.StatusCaptured,
+		Reference: "order_1",
+		Amount:    core.Money{Amount: 10000, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	payment2 := &core.PaymentResult{
+		ID:        "pay_test_2",
+		TenantID:  "demo",
+		Status:    core.StatusFailed,
+		Reference: "order_2",
+		Amount:    core.Money{Amount: 20000, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	st.RecordPayment("charge", payment1)
+	st.RecordPayment("charge", payment2)
+
+	// Seed refunds de prueba
+	refund := &core.RefundResult{
+		ID:        "ref_test_1",
+		PaymentID: "pay_test_1",
+		TenantID:  "demo",
+		Status:    core.StatusRefunded,
+		Reference: "order_1",
+		Amount:    core.Money{Amount: 5000, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	st.RecordRefund(refund)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var response struct {
+		Payments map[string]any `json:"payments"`
+		Refunds  map[string]any `json:"refunds"`
+		UptimeS  int64          `json:"uptime_s"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if response.Payments["total"] != int(2) {
+		t.Errorf("expected 2 payments, got %v", response.Payments["total"])
+	}
+
+	if response.Refunds["total"] != int(1) {
+		t.Errorf("expected 1 refund, got %v", response.Refunds["total"])
+	}
+
+	if response.UptimeS <= 0 {
+		t.Errorf("expected uptime_s > 0, got %d", response.UptimeS)
+	}
+}

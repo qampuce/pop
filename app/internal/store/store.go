@@ -56,6 +56,22 @@ type Filter struct {
 // maxListLimit cap interno para evitar devolver colecciones gigantes.
 const maxListLimit = 500
 
+// Pagination para listados con cursor-based pagination.
+type Pagination struct {
+	// Offset desde donde empezar (0-based).
+	Offset int `json:"offset"`
+	// Límite de resultados por página.
+	Limit int `json:"limit"`
+}
+
+// DefaultPagination devuelve valores por defecto para paginación.
+func DefaultPagination() Pagination {
+	return Pagination{
+		Offset: 0,
+		Limit:  50,
+	}
+}
+
 // Store es el repositorio in-memory de operaciones.
 type Store struct {
 	mu       sync.RWMutex
@@ -140,6 +156,7 @@ func (s *Store) GetPayment(id string) (*PaymentRecord, error) {
 
 // ListPayments devuelve los registros que matchean el filtro.
 // Orden: por LastUpdated descendente (más reciente primero).
+// Soporta paginación vía el campo Limit del filtro.
 func (s *Store) ListPayments(f Filter) []*PaymentRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -179,6 +196,72 @@ func (s *Store) ListPayments(f Filter) []*PaymentRecord {
 		out = out[:limit]
 	}
 	return out
+}
+
+// ListRefunds devuelve los registros de refunds que matchean el filtro.
+// Orden: por StoredAt descendente (más reciente primero).
+func (s *Store) ListRefunds(f Filter) []*RefundRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	limit := f.Limit
+	if limit <= 0 || limit > maxListLimit {
+		limit = maxListLimit
+	}
+
+	var out []*RefundRecord
+	for _, r := range s.refunds {
+		if r == nil {
+			continue
+		}
+		// Filtrar por tenant si está especificado
+		if f.TenantID != "" && r.TenantID != f.TenantID {
+			continue
+		}
+		// Filtrar por status si está especificado
+		if f.Status != "" && r.Status != f.Status {
+			continue
+		}
+		// Filtrar por provider si está especificado
+		if f.Provider != "" && r.Provider != f.Provider {
+			continue
+		}
+		// Filtrar por payment_id (reference en refunds es el payment_id)
+		if f.Reference != "" && r.PaymentID != f.Reference {
+			continue
+		}
+		out = append(out, r)
+	}
+
+	// Ordenar por StoredAt desc
+	sortRefundsByStoredDesc(out)
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out
+}
+
+// GetRefund recupera un RefundRecord por ID.
+func (s *Store) GetRefund(id string) (*RefundRecord, error) {
+	if id == "" {
+		return nil, ErrNotFound
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	r, ok := s.refunds[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	return r, nil
+}
+
+// sortRefundsByStoredDesc ordena in-place por StoredAt descendente.
+func sortRefundsByStoredDesc(rs []*RefundRecord) {
+	for i := 1; i < len(rs); i++ {
+		for j := i; j > 0 && rs[j-1].StoredAt.Before(rs[j].StoredAt); j-- {
+			rs[j-1], rs[j] = rs[j], rs[j-1]
+		}
+	}
 }
 
 // CountPayments devuelve la cantidad de registros que matchean el filtro.

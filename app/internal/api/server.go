@@ -66,6 +66,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/void", s.handleVoid)
 	s.mux.HandleFunc("/api/v1/payments", s.handlePayments)
 	s.mux.HandleFunc("/api/v1/payments/", s.handlePayments)
+	s.mux.HandleFunc("/api/v1/refunds", s.handleRefunds)
+	s.mux.HandleFunc("/api/v1/refunds/", s.handleRefunds)
+	s.mux.HandleFunc("/api/v1/metrics", s.handleMetrics)
 	s.mux.HandleFunc("/webhooks/", s.handleWebhook)
 }
 
@@ -75,7 +78,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status":   "ok",
 		"service":  "pop",
-		"version":  "0.3.0",
+		"version":  "0.4.0",
 		"uptime_s": int64(time.Since(startTime).Seconds()),
 	})
 }
@@ -326,6 +329,114 @@ func (s *Server) handlePayments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, record)
+}
+
+func (s *Server) handleRefunds(w http.ResponseWriter, r *http.Request) {
+	// Extraer ID del path: /api/v1/refunds/{id}
+	path := r.URL.Path
+	prefix := "/api/v1/refunds/"
+	
+	if !strings.HasPrefix(path, prefix) {
+		writeError(w, http.StatusBadRequest, "invalid_request", "invalid path")
+		return
+	}
+	
+	id := strings.TrimPrefix(path, prefix)
+	
+	// Si ID está vacío, es /api/v1/refunds/ → listar
+	if id == "" {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		
+		// Parsear query params
+		query := r.URL.Query()
+		filter := store.Filter{
+			TenantID: query.Get("tenant_id"),
+			Status:   core.PaymentStatus(query.Get("status")),
+			Provider: core.ProviderID(query.Get("provider")),
+			Reference: query.Get("payment_id"), // reference en refunds es payment_id
+		}
+		
+		// Parsear limit
+		if limitStr := query.Get("limit"); limitStr != "" {
+			var limit int
+			if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil {
+				filter.Limit = limit
+			}
+		}
+		
+		records := s.store.ListRefunds(filter)
+		writeJSON(w, http.StatusOK, map[string]any{
+			"refunds": records,
+			"count":  len(records),
+		})
+		return
+	}
+	
+	// GET /api/v1/refunds/{id} → obtener un refund específico
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	record, err := s.store.GetRefund(id)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, http.StatusNotFound, "not_found", "refund not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "internal_error", err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, record)
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Métricas agregadas del store
+	allPayments := s.store.ListPayments(store.Filter{})
+	allRefunds := s.store.ListRefunds(store.Filter{})
+	
+	// Calcular estadísticas por status
+	statusCounts := make(map[string]int)
+	providerCounts := make(map[string]int)
+	totalAmount := int64(0)
+	
+	for _, p := range allPayments {
+		statusCounts[string(p.Status)]++
+		providerCounts[string(p.Provider)]++
+		totalAmount += p.Amount.Amount
+	}
+	
+	// Calcular estadísticas de refunds
+	refundCounts := make(map[string]int)
+	totalRefunded := int64(0)
+	
+	for _, r := range allRefunds {
+		refundCounts[string(r.Status)]++
+		totalRefunded += r.Amount.Amount
+	}
+	
+	writeJSON(w, http.StatusOK, map[string]any{
+		"payments": map[string]any{
+			"total":         len(allPayments),
+			"by_status":    statusCounts,
+			"by_provider":  providerCounts,
+			"total_amount":  totalAmount,
+		},
+		"refunds": map[string]any{
+			"total":          len(allRefunds),
+			"by_status":      refundCounts,
+			"total_refunded": totalRefunded,
+		},
+		"uptime_s": int64(time.Since(startTime).Seconds()),
+	})
 }
 
 // --- Helpers ----------------------------------------------------------------

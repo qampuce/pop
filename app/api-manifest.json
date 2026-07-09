@@ -1,5 +1,5 @@
 {
-  "version": "0.3.0",
+  "version": "0.4.0",
   "basePath": "/",
   "description": "pop — orquestador de pagos multi-provider con routing inteligente, cascading, webhooks normalizados y store in-memory de operaciones",
   "endpoints": [
@@ -52,6 +52,21 @@
       "method": "GET",
       "path": "/api/v1/payments/{id}",
       "description": "Obtiene un pago específico por ID"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/refunds",
+      "description": "Lista refunds con filtros (tenant_id, status, provider, payment_id, limit)"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/refunds/{id}",
+      "description": "Obtiene un refund específico por ID"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/metrics",
+      "description": "Métricas agregadas de pagos y refunds (totales, por status, por provider, montos)"
     },
     {
       "method": "POST",

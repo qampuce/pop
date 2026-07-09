@@ -238,6 +238,46 @@ Headers requeridos según provider:
 - Niubiz: `X-Signature`
 - Adyen: `X-Adyen-Signature`, `X-Adyen-Webhook-Secret`, `X-Adyen-Tenant`
 
+#### GET /api/v1/refunds
+Lista refunds con filtros (tenant_id, status, provider, payment_id, limit).
+
+```json
+{
+  "refunds": [...],
+  "count": 10
+}
+```
+
+Query params:
+- `tenant_id`: filtro por tenant
+- `status`: filtro por status (refunded, failed, etc.)
+- `provider`: filtro por provider
+- `payment_id`: filtro por payment_id original
+- `limit`: límite de resultados (default 50, max 500)
+
+#### GET /api/v1/refunds/{id}
+Obtiene un refund específico por ID.
+
+#### GET /api/v1/metrics
+Métricas agregadas de pagos y refunds (totales, por status, por provider, montos).
+
+```json
+{
+  "payments": {
+    "total": 100,
+    "by_status": {"captured": 80, "failed": 20},
+    "by_provider": {"mock": 60, "stripe": 40},
+    "total_amount": 1500000
+  },
+  "refunds": {
+    "total": 5,
+    "by_status": {"refunded": 5},
+    "total_refunded": 50000
+  },
+  "uptime_s": 3600
+}
+```
+
 ### Errores
 
 Los errores se devuelven con HTTP status codes apropiados y un JSON con detalles:
