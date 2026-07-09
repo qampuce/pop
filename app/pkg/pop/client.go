@@ -29,7 +29,12 @@ import (
 	"net/http"
 
 	_ "github.com/qampu/pop/internal/adapters/mock" // registra mock en factory.Default
+	_ "github.com/qampu/pop/internal/adapters/stripe" // registra stripe en factory.Default
 	_ "github.com/qampu/pop/internal/adapters/mercadopago" // registra mercadopago en factory.Default
+	_ "github.com/qampu/pop/internal/adapters/kushki" // registra kushki en factory.Default
+	_ "github.com/qampu/pop/internal/adapters/dlocal" // registra dlocal en factory.Default
+	_ "github.com/qampu/pop/internal/adapters/niubiz" // registra niubiz en factory.Default
+	_ "github.com/qampu/pop/internal/adapters/adyen" // registra adyen en factory.Default
 	"github.com/qampu/pop/internal/cascading"
 	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/factory"
