@@ -100,6 +100,171 @@ res, err := client.Charge(ctx, &pop.ChargeRequestExt{
 
 🌐 **[https://pop.qampuapp.com](https://pop.qampuapp.com)**
 
+## API REST
+
+El HTTP server expone el SDK como una API REST en el puerto 8080. Todos los endpoints aceptan JSON y devuelven JSON con los tipos canónicos del SDK.
+
+### Endpoints
+
+#### GET /health
+Health check del servicio con versión y uptime.
+
+```json
+{
+  "status": "ok",
+  "service": "pop",
+  "version": "0.2.0",
+  "uptime_s": 1234
+}
+```
+
+#### GET /providers
+Lista los providers de pago registrados en el orquestador.
+
+```json
+{
+  "providers": ["mock", "stripe", "mercadopago", "kushki", "dlocal", "niubiz"]
+}
+```
+
+#### POST /api/v1/tokenize
+Tokeniza datos de pago (card/APM) via el provider indicado.
+
+```json
+{
+  "tenant_id": "demo",
+  "provider": "mock",
+  "mode": "test",
+  "in": {
+    "method": "card",
+    "card": {
+      "token": "tok_test_123",
+      "last4": "4242",
+      "brand": "visa"
+    }
+  }
+}
+```
+
+#### POST /api/v1/charge
+Ejecuta autorización + captura en una operación con routing y cascading.
+
+```json
+{
+  "tenant_id": "demo",
+  "provider": "mock",
+  "mode": "test",
+  "country": "PE",
+  "reference": "order_456",
+  "amount": {
+    "amount": 19990,
+    "currency": "PEN"
+  },
+  "method": "card",
+  "provider_token": "tok_test_123",
+  "capture": true
+}
+```
+
+#### POST /api/v1/authorize
+Reserva fondos sin capturar (auth-only) con routing y cascading.
+
+```json
+{
+  "tenant_id": "demo",
+  "provider": "mock",
+  "mode": "test",
+  "country": "PE",
+  "reference": "order_456",
+  "amount": {
+    "amount": 19990,
+    "currency": "PEN"
+  },
+  "method": "card",
+  "provider_token": "tok_test_123"
+}
+```
+
+#### POST /api/v1/capture
+Captura fondos de una autorización previa contra el provider original.
+
+```json
+{
+  "tenant_id": "demo",
+  "authorization_id": "auth_123",
+  "amount": {
+    "amount": 19990,
+    "currency": "PEN"
+  }
+}
+```
+
+#### POST /api/v1/refund
+Devuelve fondos total o parcialmente de un pago capturado.
+
+```json
+{
+  "tenant_id": "demo",
+  "payment_id": "pay_123",
+  "amount": {
+    "amount": 19990,
+    "currency": "PEN"
+  },
+  "reason": "requested_by_customer"
+}
+```
+
+#### POST /api/v1/void
+Cancela una autorización pendiente antes de su captura.
+
+```json
+{
+  "tenant_id": "demo",
+  "authorization_id": "auth_123",
+  "reason": "duplicate"
+}
+```
+
+#### POST /webhooks/{provider}
+Recibe y normaliza webhooks del proveedor indicado (firma verificada).
+
+Query params: `?mode=test|live` (default test)
+
+Headers requeridos según provider:
+- Stripe: `Stripe-Signature`
+- Mercado Pago: `x-signature`
+- Kushki: `X-Kushki-Signature`
+- dLocal: `X-Signature`
+- Niubiz: `X-Signature`
+- Adyen: `X-Adyen-Signature`, `X-Adyen-Webhook-Secret`, `X-Adyen-Tenant`
+
+### Errores
+
+Los errores se devuelven con HTTP status codes apropiados y un JSON con detalles:
+
+```json
+{
+  "error": "card_declined",
+  "category": "decline",
+  "message": "Card declined",
+  "provider": "stripe",
+  "provider_code": "card_declined",
+  "provider_message": "Your card was declined.",
+  "decline_code": "generic_decline",
+  "retryable": false
+}
+```
+
+HTTP status codes:
+- 400: Invalid request (validation error)
+- 401: Unauthorized (invalid credentials)
+- 402: Payment required (declined)
+- 404: Not found (missing credentials)
+- 422: Unprocessable entity (unsupported operation)
+- 429: Too many requests (rate limited)
+- 502: Bad gateway (upstream transient error)
+- 500: Internal error
+
 ## Desarrollo
 
 ```bash
