@@ -69,6 +69,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("/api/v1/refunds", s.handleRefunds)
 	s.mux.HandleFunc("/api/v1/refunds/", s.handleRefunds)
 	s.mux.HandleFunc("/api/v1/metrics", s.handleMetrics)
+	s.mux.HandleFunc("/metrics", s.handlePrometheusMetrics)
 	s.mux.HandleFunc("/webhooks/", s.handleWebhook)
 }
 
@@ -528,6 +529,94 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	}
 	
 	writeJSON(w, http.StatusOK, response)
+}
+
+func (s *Server) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	
+	// Métricas agregadas del store
+	allPayments := s.store.ListPayments(store.Filter{})
+	allRefunds := s.store.ListRefunds(store.Filter{})
+	
+	// Calcular estadísticas por status
+	statusCounts := make(map[string]int)
+	providerCounts := make(map[string]int)
+	totalAmount := int64(0)
+	
+	for _, p := range allPayments {
+		statusCounts[string(p.Status)]++
+		providerCounts[string(p.Provider)]++
+		totalAmount += p.Amount.Amount
+	}
+	
+	// Calcular estadísticas de refunds
+	refundCounts := make(map[string]int)
+	totalRefunded := int64(0)
+	
+	for _, r := range allRefunds {
+		refundCounts[string(r.Status)]++
+		totalRefunded += r.Amount.Amount
+	}
+	
+	// Generar métricas en formato Prometheus
+	var builder strings.Builder
+	
+	// Métricas de uptime
+	uptime := int64(time.Since(startTime).Seconds())
+	builder.WriteString(fmt.Sprintf("# HELP pop_uptime_seconds Uptime del servicio en segundos\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_uptime_seconds gauge\n"))
+	builder.WriteString(fmt.Sprintf("pop_uptime_seconds %d\n\n", uptime))
+	
+	// Métricas de pagos totales
+	builder.WriteString(fmt.Sprintf("# HELP pop_payments_total Total de pagos procesados\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_payments_total gauge\n"))
+	builder.WriteString(fmt.Sprintf("pop_payments_total %d\n\n", len(allPayments)))
+	
+	// Métricas de pagos por status
+	builder.WriteString(fmt.Sprintf("# HELP pop_payments_by_status Total de pagos por status\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_payments_by_status gauge\n"))
+	for status, count := range statusCounts {
+		builder.WriteString(fmt.Sprintf("pop_payments_by_status{status=\"%s\"} %d\n", status, count))
+	}
+	builder.WriteString("\n")
+	
+	// Métricas de pagos por provider
+	builder.WriteString(fmt.Sprintf("# HELP pop_payments_by_provider Total de pagos por provider\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_payments_by_provider gauge\n"))
+	for provider, count := range providerCounts {
+		builder.WriteString(fmt.Sprintf("pop_payments_by_provider{provider=\"%s\"} %d\n", provider, count))
+	}
+	builder.WriteString("\n")
+	
+	// Métricas de monto total procesado
+	builder.WriteString(fmt.Sprintf("# HELP pop_amount_total Monto total procesado en cents\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_amount_total gauge\n"))
+	builder.WriteString(fmt.Sprintf("pop_amount_total %d\n\n", totalAmount))
+	
+	// Métricas de refunds totales
+	builder.WriteString(fmt.Sprintf("# HELP pop_refunds_total Total de refunds procesados\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_refunds_total gauge\n"))
+	builder.WriteString(fmt.Sprintf("pop_refunds_total %d\n\n", len(allRefunds)))
+	
+	// Métricas de refunds por status
+	builder.WriteString(fmt.Sprintf("# HELP pop_refunds_by_status Total de refunds por status\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_refunds_by_status gauge\n"))
+	for status, count := range refundCounts {
+		builder.WriteString(fmt.Sprintf("pop_refunds_by_status{status=\"%s\"} %d\n", status, count))
+	}
+	builder.WriteString("\n")
+	
+	// Métricas de monto total reembolsado
+	builder.WriteString(fmt.Sprintf("# HELP pop_refunds_amount_total Monto total reembolsado en cents\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_refunds_amount_total gauge\n"))
+	builder.WriteString(fmt.Sprintf("pop_refunds_amount_total %d\n", totalRefunded))
+	
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(builder.String()))
 }
 
 // --- Helpers ----------------------------------------------------------------

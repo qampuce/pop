@@ -334,6 +334,19 @@ Query params:
 }
 ```
 
+#### GET /metrics
+Métricas en formato Prometheus para integración con sistemas de monitoreo (Grafana, Prometheus, etc.).
+
+Formato: text/plain con métricas tipo gauge para:
+- `pop_uptime_seconds` — uptime del servicio
+- `pop_payments_total` — total de pagos procesados
+- `pop_payments_by_status` — pagos por status (captured, failed, etc.)
+- `pop_payments_by_provider` — pagos por provider (mock, stripe, etc.)
+- `pop_amount_total` — monto total procesado en cents
+- `pop_refunds_total` — total de refunds procesados
+- `pop_refunds_by_status` — refunds por status
+- `pop_refunds_amount_total` — monto total reembolsado en cents
+
 ### Errores
 
 Los errores se devuelven con HTTP status codes apropiados y un JSON con detalles:

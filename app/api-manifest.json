@@ -72,6 +72,11 @@
       "method": "POST",
       "path": "/webhooks/{provider}",
       "description": "Recibe y normaliza webhooks del proveedor indicado (firma verificada)"
+    },
+    {
+      "method": "GET",
+      "path": "/metrics",
+      "description": "Métricas en formato Prometheus para integración con sistemas de monitoreo (Grafana, Prometheus, etc.)"
     }
   ],
   "events": [
