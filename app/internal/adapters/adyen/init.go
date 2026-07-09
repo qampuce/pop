@@ -1,9 +1,4 @@
 package adyen
 
-import (
-	"github.com/qampu/pop/internal/webhook"
-)
-
-func init() {
-	webhook.Default.Register(Provider, &adyenVerifier{}, &adyenNormalizer{})
-}
+// El registro del factory y webhook se hace en adyen.go init()
+// para mantener todo el registro en un solo lugar.

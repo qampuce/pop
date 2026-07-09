@@ -2,6 +2,9 @@ package adyen
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 
 	"github.com/qampu/pop/internal/core"
@@ -39,27 +42,20 @@ func TestAdyenAdapter(t *testing.T) {
 }
 
 func TestAdyenAdapter_Tokenize(t *testing.T) {
-	tctx := &core.TenantContext{
-		TenantID:      "test_tenant",
-		Provider:      Provider,
-		Country:       "US",
-		Mode:          core.EnvTest,
-		Secret:        "test_merchant",
-		WebhookSecret: "test_api_key",
-	}
-
-	adapter, err := New(tctx)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-
 	tests := []struct {
 		name    string
+		handler http.HandlerFunc
 		req     *core.TokenizeRequest
 		wantErr bool
 	}{
 		{
 			name: "valid card tokenize",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]any{
+					"token": "tok_adyen_123",
+				})
+			},
 			req: &core.TokenizeRequest{
 				Method: core.MethodCard,
 				Card: &core.CardToken{
@@ -68,10 +64,17 @@ func TestAdyenAdapter_Tokenize(t *testing.T) {
 					Brand: "visa",
 				},
 			},
-			wantErr: true, // Error de red en test sin mock
+			wantErr: false,
 		},
 		{
 			name: "unsupported method",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]any{
+					"errorCode": "101",
+					"message": "Invalid request",
+				})
+			},
 			req: &core.TokenizeRequest{
 				Method: core.MethodPix,
 			},
@@ -81,7 +84,25 @@ func TestAdyenAdapter_Tokenize(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := adapter.Tokenize(context.Background(), tt.req)
+			server := httptest.NewServer(tt.handler)
+			defer server.Close()
+
+			tctx := &core.TenantContext{
+				TenantID:      "test_tenant",
+				Provider:      Provider,
+				Country:       "US",
+				Mode:          core.EnvTest,
+				Secret:        "test_merchant",
+				WebhookSecret: "test_api_key",
+				EndpointURL:   server.URL,
+			}
+
+			adapter, err := New(tctx)
+			if err != nil {
+				t.Fatalf("New() error = %v", err)
+			}
+
+			_, err = adapter.Tokenize(context.Background(), tt.req)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Tokenize() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -90,6 +111,16 @@ func TestAdyenAdapter_Tokenize(t *testing.T) {
 }
 
 func TestAdyenAdapter_Authorize(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pspReference": "psp_auth_123",
+			"resultCode":    "Authorised",
+		})
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
 	tctx := &core.TenantContext{
 		TenantID:      "test_tenant",
 		Provider:      Provider,
@@ -97,6 +128,7 @@ func TestAdyenAdapter_Authorize(t *testing.T) {
 		Mode:          core.EnvTest,
 		Secret:        "test_merchant",
 		WebhookSecret: "test_api_key",
+		EndpointURL:   server.URL,
 	}
 
 	adapter, err := New(tctx)
@@ -111,13 +143,29 @@ func TestAdyenAdapter_Authorize(t *testing.T) {
 		ProviderToken: "tok_test_123",
 	}
 
-	_, err = adapter.Authorize(context.Background(), req)
-	if err == nil {
-		t.Error("Authorize() should return error in test without mock")
+	res, err := adapter.Authorize(context.Background(), req)
+	if err != nil {
+		t.Errorf("Authorize() error = %v", err)
+	}
+	if res == nil {
+		t.Fatal("Authorize() returned nil result")
+	}
+	if res.Status != core.StatusAuthorized {
+		t.Errorf("Authorize() status = %v, want %v", res.Status, core.StatusAuthorized)
 	}
 }
 
 func TestAdyenAdapter_Charge(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pspReference": "psp_charge_123",
+			"resultCode":    "Captured",
+		})
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
 	tctx := &core.TenantContext{
 		TenantID:      "test_tenant",
 		Provider:      Provider,
@@ -125,6 +173,7 @@ func TestAdyenAdapter_Charge(t *testing.T) {
 		Mode:          core.EnvTest,
 		Secret:        "test_merchant",
 		WebhookSecret: "test_api_key",
+		EndpointURL:   server.URL,
 	}
 
 	adapter, err := New(tctx)
@@ -140,13 +189,29 @@ func TestAdyenAdapter_Charge(t *testing.T) {
 		Capture:       true,
 	}
 
-	_, err = adapter.Charge(context.Background(), req)
-	if err == nil {
-		t.Error("Charge() should return error in test without mock")
+	res, err := adapter.Charge(context.Background(), req)
+	if err != nil {
+		t.Errorf("Charge() error = %v", err)
+	}
+	if res == nil {
+		t.Fatal("Charge() returned nil result")
+	}
+	if res.Status != core.StatusCaptured {
+		t.Errorf("Charge() status = %v, want %v", res.Status, core.StatusCaptured)
 	}
 }
 
 func TestAdyenAdapter_Capture(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pspReference": "psp_capture_123",
+			"response":     "[capture-received]",
+		})
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
 	tctx := &core.TenantContext{
 		TenantID:      "test_tenant",
 		Provider:      Provider,
@@ -154,6 +219,7 @@ func TestAdyenAdapter_Capture(t *testing.T) {
 		Mode:          core.EnvTest,
 		Secret:        "test_merchant",
 		WebhookSecret: "test_api_key",
+		EndpointURL:   server.URL,
 	}
 
 	adapter, err := New(tctx)
@@ -166,13 +232,29 @@ func TestAdyenAdapter_Capture(t *testing.T) {
 		Amount:          core.Money{Amount: 10000, Currency: "USD"},
 	}
 
-	_, err = adapter.Capture(context.Background(), req)
-	if err == nil {
-		t.Error("Capture() should return error in test without mock")
+	res, err := adapter.Capture(context.Background(), req)
+	if err != nil {
+		t.Errorf("Capture() error = %v", err)
+	}
+	if res == nil {
+		t.Fatal("Capture() returned nil result")
+	}
+	if res.Status != core.StatusCaptured {
+		t.Errorf("Capture() status = %v, want %v", res.Status, core.StatusCaptured)
 	}
 }
 
 func TestAdyenAdapter_Void(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pspReference": "psp_void_123",
+			"response":     "[cancel-received]",
+		})
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
 	tctx := &core.TenantContext{
 		TenantID:      "test_tenant",
 		Provider:      Provider,
@@ -180,6 +262,7 @@ func TestAdyenAdapter_Void(t *testing.T) {
 		Mode:          core.EnvTest,
 		Secret:        "test_merchant",
 		WebhookSecret: "test_api_key",
+		EndpointURL:   server.URL,
 	}
 
 	adapter, err := New(tctx)
@@ -192,13 +275,29 @@ func TestAdyenAdapter_Void(t *testing.T) {
 		Reason:          "duplicate",
 	}
 
-	_, err = adapter.Void(context.Background(), req)
-	if err == nil {
-		t.Error("Void() should return error in test without mock")
+	res, err := adapter.Void(context.Background(), req)
+	if err != nil {
+		t.Errorf("Void() error = %v", err)
+	}
+	if res == nil {
+		t.Fatal("Void() returned nil result")
+	}
+	if res.Status != core.StatusVoided {
+		t.Errorf("Void() status = %v, want %v", res.Status, core.StatusVoided)
 	}
 }
 
 func TestAdyenAdapter_Refund(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pspReference": "psp_refund_123",
+			"response":     "[refund-received]",
+		})
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
 	tctx := &core.TenantContext{
 		TenantID:      "test_tenant",
 		Provider:      Provider,
@@ -206,6 +305,7 @@ func TestAdyenAdapter_Refund(t *testing.T) {
 		Mode:          core.EnvTest,
 		Secret:        "test_merchant",
 		WebhookSecret: "test_api_key",
+		EndpointURL:   server.URL,
 	}
 
 	adapter, err := New(tctx)
@@ -219,9 +319,15 @@ func TestAdyenAdapter_Refund(t *testing.T) {
 		Reason:    core.RefundRequestedByCustomer,
 	}
 
-	_, err = adapter.Refund(context.Background(), req)
-	if err == nil {
-		t.Error("Refund() should return error in test without mock")
+	res, err := adapter.Refund(context.Background(), req)
+	if err != nil {
+		t.Errorf("Refund() error = %v", err)
+	}
+	if res == nil {
+		t.Fatal("Refund() returned nil result")
+	}
+	if res.Status != core.StatusRefunded {
+		t.Errorf("Refund() status = %v, want %v", res.Status, core.StatusRefunded)
 	}
 }
 
@@ -299,5 +405,115 @@ func TestNew_MissingMerchant(t *testing.T) {
 	_, err := New(tctx)
 	if err == nil {
 		t.Error("New() should return error when merchant is missing")
+	}
+}
+
+func TestAdyenAdapter_With3DS2(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pspReference": "psp_3ds_123",
+			"resultCode":    "Authorised",
+			"action": map[string]any{
+				"type":  "threeDS2",
+				"token": "three_ds_token_123",
+			},
+		})
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	tctx := &core.TenantContext{
+		TenantID:      "test_tenant",
+		Provider:      Provider,
+		Country:       "US",
+		Mode:          core.EnvTest,
+		Secret:        "test_merchant",
+		WebhookSecret: "test_api_key",
+		EndpointURL:   server.URL,
+	}
+
+	adapter, err := New(tctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &core.AuthorizeRequest{
+		Reference:     "test_3ds_123",
+		Amount:        core.Money{Amount: 10000, Currency: "USD"},
+		Method:        core.MethodCard,
+		ProviderToken: "tok_test_123",
+	}
+
+	res, err := adapter.Authorize(context.Background(), req)
+	if err != nil {
+		t.Errorf("Authorize() error = %v", err)
+	}
+	if res == nil {
+		t.Fatal("Authorize() returned nil result")
+	}
+	if res.NextAction == nil {
+		t.Error("Authorize() should return NextAction for 3DS2")
+	}
+	if res.NextAction.Type != core.NextAction3DS {
+		t.Errorf("NextAction.Type = %v, want %v", res.NextAction.Type, core.NextAction3DS)
+	}
+	if res.NextAction.Token3DS == "" {
+		t.Error("NextAction.Token3DS should be set for 3DS2")
+	}
+}
+
+func TestAdyenAdapter_WithRedirect(t *testing.T) {
+	handler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"pspReference": "psp_redirect_123",
+			"resultCode":    "Pending",
+			"action": map[string]any{
+				"type": "redirect",
+				"url":  "https://example.com/redirect",
+			},
+		})
+	}
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	tctx := &core.TenantContext{
+		TenantID:      "test_tenant",
+		Provider:      Provider,
+		Country:       "US",
+		Mode:          core.EnvTest,
+		Secret:        "test_merchant",
+		WebhookSecret: "test_api_key",
+		EndpointURL:   server.URL,
+	}
+
+	adapter, err := New(tctx)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	req := &core.AuthorizeRequest{
+		Reference:     "test_redirect_123",
+		Amount:        core.Money{Amount: 10000, Currency: "USD"},
+		Method:        core.MethodCard,
+		ProviderToken: "tok_test_123",
+	}
+
+	res, err := adapter.Authorize(context.Background(), req)
+	if err != nil {
+		t.Errorf("Authorize() error = %v", err)
+	}
+	if res == nil {
+		t.Fatal("Authorize() returned nil result")
+	}
+	if res.NextAction == nil {
+		t.Error("Authorize() should return NextAction for redirect")
+	}
+	if res.NextAction.Type != core.NextActionRedirect {
+		t.Errorf("NextAction.Type = %v, want %v", res.NextAction.Type, core.NextActionRedirect)
+	}
+	if res.NextAction.RedirectURL == "" {
+		t.Error("NextAction.RedirectURL should be set for redirect")
 	}
 }
