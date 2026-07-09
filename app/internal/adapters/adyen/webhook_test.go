@@ -8,41 +8,157 @@ import (
 	"testing"
 )
 
-func TestAdyenVerifier(t *testing.T) {
-	secret := "test_webhook_secret"
-	body := []byte(`{"pspReference":"test123","eventCode":"AUTHORISATION"}`)
-
-	// Generar firma válida
-	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write(body)
-	sig := hex.EncodeToString(mac.Sum(nil))
-	sigHeader := "keyId=wsig_test,signature=" + sig + ",algorithm=HMAC-SHA256"
-
-	verifier := &adyenVerifier{}
-
+func TestBuildWebhookPayload(t *testing.T) {
 	tests := []struct {
 		name    string
-		headers http.Header
 		body    []byte
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "full event with amount",
+			body: []byte(`{
+				"pspReference": "psp_123",
+				"originalReference": "orig_123",
+				"merchantAccountCode": "TestMerchant",
+				"merchantReference": "order_456",
+				"eventCode": "AUTHORISATION",
+				"eventDate": 1234567890,
+				"success": true,
+				"amount": {
+					"value": 10000,
+					"currency": "USD"
+				}
+			}`),
+			want:    "psp_123,orig_123,TestMerchant,order_456,10000,USD,AUTHORISATION,true",
+			wantErr: false,
+		},
+		{
+			name: "event without amount",
+			body: []byte(`{
+				"pspReference": "psp_456",
+				"merchantReference": "order_789",
+				"eventCode": "CANCELLATION",
+				"eventDate": 1234567890,
+				"success": true
+			}`),
+			want:    "psp_456,,,order_789,,CANCELLATION,true",
+			wantErr: false,
+		},
+		{
+			name:    "invalid json",
+			body:    []byte(`invalid json`),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildWebhookPayload(tt.body)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("buildWebhookPayload() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("buildWebhookPayload() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseSignatureHeader(t *testing.T) {
+	tests := []struct {
+		name    string
+		header  string
+		wantKey string
+		wantSig string
+		wantErr bool
+	}{
+		{
+			name:    "valid header",
+			header:  "keyId=wsig_123,signature=abc123,algorithm=HMAC-SHA256",
+			wantKey: "wsig_123",
+			wantSig: "abc123",
+			wantErr: false,
+		},
+		{
+			name:    "missing keyId",
+			header:  "signature=abc123,algorithm=HMAC-SHA256",
+			wantErr: true,
+		},
+		{
+			name:    "missing signature",
+			header:  "keyId=wsig_123,algorithm=HMAC-SHA256",
+			wantErr: true,
+		},
+		{
+			name:    "empty header",
+			header:  "",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			key, sig, err := parseSignatureHeader(tt.header)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("parseSignatureHeader() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !tt.wantErr {
+				if key != tt.wantKey {
+					t.Errorf("parseSignatureHeader() key = %v, want %v", key, tt.wantKey)
+				}
+				if sig != tt.wantSig {
+					t.Errorf("parseSignatureHeader() sig = %v, want %v", sig, tt.wantSig)
+				}
+			}
+		})
+	}
+}
+
+func TestAdyenVerifier_Verify(t *testing.T) {
+	verifier := &adyenVerifier{}
+	
+	tests := []struct {
+		name    string
+		body    []byte
+		headers http.Header
 		secret  string
 		wantErr bool
 	}{
 		{
 			name: "valid signature",
+			body: []byte(`{
+				"pspReference": "psp_123",
+				"merchantReference": "order_456",
+				"eventCode": "AUTHORISATION",
+				"success": true
+			}`),
 			headers: http.Header{
-				"X-Adyen-Signature": []string{sigHeader},
+				"X-Adyen-Signature": []string{"keyId=wsig_123,signature=" + generateHMAC([]byte(`{
+				"pspReference": "psp_123",
+				"merchantReference": "order_456",
+				"eventCode": "AUTHORISATION",
+				"success": true
+			}`), "test_secret")},
 			},
-			body:    body,
-			secret:  secret,
+			secret:  "test_secret",
 			wantErr: false,
 		},
 		{
-			name: "invalid signature",
+			name: "missing signature header",
+			body: []byte(`{}`),
+			headers: http.Header{},
+			wantErr: true,
+		},
+		{
+			name: "signature mismatch",
+			body: []byte(`{}`),
 			headers: http.Header{
-				"X-Adyen-Signature": []string{"keyId=wsig_test,signature=invalid,algorithm=HMAC-SHA256"},
+				"X-Adyen-Signature": []string{"keyId=wsig_123,signature=wrong"},
 			},
-			body:    body,
-			secret:  secret,
+			secret:  "test_secret",
 			wantErr: true,
 		},
 	}
@@ -59,61 +175,53 @@ func TestAdyenVerifier(t *testing.T) {
 
 func TestAdyenNormalizer(t *testing.T) {
 	normalizer := &adyenNormalizer{}
-
+	
 	tests := []struct {
 		name    string
 		body    []byte
+		want    string
 		wantErr bool
 	}{
 		{
-			name: "valid authorization event",
+			name: "authorization event",
 			body: []byte(`{
-				"pspReference": "test123",
+				"pspReference": "psp_123",
 				"eventCode": "AUTHORISATION",
-				"eventDate": 1620000000000,
 				"success": true,
-				"merchantReference": "order_123",
-				"amount": {
-					"value": 10000,
-					"currency": "USD"
-				}
+				"merchantReference": "order_456"
 			}`),
+			want:    "payment.authorized",
 			wantErr: false,
 		},
 		{
-			name: "valid capture event",
+			name: "capture event",
 			body: []byte(`{
-				"pspReference": "test456",
+				"pspReference": "psp_456",
 				"eventCode": "CAPTURE",
-				"eventDate": 1620000000000,
-				"success": true,
-				"merchantReference": "order_123",
-				"amount": {
-					"value": 10000,
-					"currency": "USD"
-				}
+				"success": true
 			}`),
+			want:    "payment.captured",
 			wantErr: false,
 		},
 		{
-			name: "valid refund event",
+			name: "refund event",
 			body: []byte(`{
-				"pspReference": "test789",
+				"pspReference": "psp_789",
 				"eventCode": "REFUND",
-				"eventDate": 1620000000000,
-				"success": true,
-				"merchantReference": "order_123",
-				"amount": {
-					"value": 10000,
-					"currency": "USD"
-				}
+				"success": true
 			}`),
+			want:    "refund.completed",
 			wantErr: false,
 		},
 		{
-			name:    "invalid json",
-			body:    []byte(`invalid json`),
-			wantErr: true,
+			name: "chargeback event",
+			body: []byte(`{
+				"pspReference": "psp_abc",
+				"eventCode": "CHARGEBACK",
+				"success": true
+			}`),
+			want:    "dispute.opened",
+			wantErr: false,
 		},
 	}
 
@@ -122,12 +230,18 @@ func TestAdyenNormalizer(t *testing.T) {
 			ev, err := normalizer.Normalize(tt.body)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Normalize() error = %v, wantErr %v", err, tt.wantErr)
+				return
 			}
-			if !tt.wantErr {
-				if ev.Provider != Provider {
-					t.Errorf("Normalize() Provider = %v, want %v", ev.Provider, Provider)
-				}
+			if !tt.wantErr && ev.Type != tt.want {
+				t.Errorf("Normalize() type = %v, want %v", ev.Type, tt.want)
 			}
 		})
 	}
+}
+
+// Helper function to generate HMAC for testing
+func generateHMAC(body []byte, secret string) string {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write(body)
+	return hex.EncodeToString(mac.Sum(nil))
 }

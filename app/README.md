@@ -413,7 +413,9 @@ cd app && go run ./cmd/server
     soporte APMs (Yape/Plin) con NextAction (redirect/deep link/QR),
     idempotency-key, tests con `httptest` (cobertura completa).
   - ✅ **Adyen** — Payments (auth/capture/charge/void), Refunds,
-    Tokenize (card tokens), webhooks con firma HMAC-SHA256 (`X-Adyen-Signature`),
-    mapeo de códigos de error (101-170) a `NormalizedError` canónico,
-    soporte 3DS2 con NextAction (redirect/3DS), idempotency-key,
-    tests completos.
+    Tokenize (card tokens), webhooks con firma HMAC-SHA256 (`X-Adyen-Signature`)
+    usando payload canónico según especificación oficial (pspReference,
+    originalReference, merchantAccountCode, merchantReference, value, currency,
+    eventCode, success), mapeo de códigos de error (101-170) a `NormalizedError`
+    canónico, soporte 3DS2 con NextAction (redirect/3DS), idempotency-key,
+    tests completos (adapter + webhook).

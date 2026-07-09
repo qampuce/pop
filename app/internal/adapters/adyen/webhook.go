@@ -34,9 +34,12 @@ func (v *adyenVerifier) Verify(body []byte, headers http.Header, secret string) 
 	}
 
 	// El payload para Adyen es el concatenado de ciertos campos del JSON
-	// en orden específico. Para simplificar, usamos el body completo.
-	// En producción, Adyen requiere un orden específico de campos.
-	payload := string(body)
+	// en orden específico según la documentación de Adyen:
+	// https://docs.adyen.com/development-resources/webhooks/verify-hmac-signatures
+	payload, err := buildWebhookPayload(body)
+	if err != nil {
+		return fmt.Errorf("build payload: %w", err)
+	}
 
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(payload))
@@ -72,6 +75,41 @@ func parseSignatureHeader(header string) (keyID, sig string, err error) {
 		return "", "", fmt.Errorf("missing signature in signature")
 	}
 	return keyID, sig, nil
+}
+
+// buildWebhookPayload construye el payload para la firma HMAC según la
+// especificación de Adyen. El payload es el concatenado de ciertos campos
+// del JSON en orden específico, separados por comas.
+func buildWebhookPayload(body []byte) (string, error) {
+	var ev adyenWebhookEvent
+	if err := json.Unmarshal(body, &ev); err != nil {
+		return "", fmt.Errorf("unmarshal: %w", err)
+	}
+
+	// Según la documentación de Adyen, el payload es:
+	// pspReference, originalReference, merchantAccountCode, merchantReference,
+	// value, currency, eventCode, success
+	// Donde value es el monto en la unidad mínima (cents)
+	
+	var amountValue string
+	var currency string
+	if ev.Amount != nil {
+		amountValue = fmt.Sprintf("%d", ev.Amount.Value)
+		currency = ev.Amount.Currency
+	}
+
+	payload := fmt.Sprintf("%s,%s,%s,%s,%s,%s,%s,%s",
+		ev.PspReference,
+		ev.OriginalReference,
+		ev.MerchantAccountCode,
+		ev.MerchantReference,
+		amountValue,
+		currency,
+		ev.EventCode,
+		fmt.Sprintf("%t", ev.Success),
+	)
+
+	return payload, nil
 }
 
 // adyenNormalizer traduce el payload del evento de Adyen al formato canónico.
@@ -126,17 +164,19 @@ func (n *adyenNormalizer) Normalize(body []byte) (*webhook.NormalizedEvent, erro
 	}, nil
 }
 
-// adyenWebhookEvent es el envelope de un evento de Adyen.
-type adyenWebhookEvent struct {
-	PspReference      string       `json:"pspReference"`
-	EventCode         string       `json:"eventCode"`
-	EventDate         int64        `json:"eventDate"`
-	Success           bool         `json:"success"`
-	MerchantReference string       `json:"merchantReference"`
-	Amount            *adyenAmount `json:"amount,omitempty"`
-}
-
 type adyenAmount struct {
 	Value    int64  `json:"value"`
 	Currency string `json:"currency"`
+}
+
+// adyenWebhookEvent es el envelope de un evento de Adyen.
+type adyenWebhookEvent struct {
+	PspReference       string       `json:"pspReference"`
+	OriginalReference  string       `json:"originalReference,omitempty"`
+	MerchantAccountCode string       `json:"merchantAccountCode,omitempty"`
+	MerchantReference  string       `json:"merchantReference"`
+	EventCode          string       `json:"eventCode"`
+	EventDate          int64        `json:"eventDate"`
+	Success            bool         `json:"success"`
+	Amount             *adyenAmount `json:"amount,omitempty"`
 }
