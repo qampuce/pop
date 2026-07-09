@@ -142,10 +142,22 @@ func (r *Registry) Process(
 
 	// Necesitamos resolver el tenant primero para obtener el webhook secret.
 	// Para esto, extraemos el tenant_id del request (header, query param, o payload).
-	// Por ahora, usamos un header X-Tenant-ID.
+	// Prioridad: header X-Tenant-ID > query param tenant_id > payload.
 	tenantID := req.Header.Get("X-Tenant-ID")
 	if tenantID == "" {
-		return nil, fmt.Errorf("pop: missing X-Tenant-ID header")
+		tenantID = req.URL.Query().Get("tenant_id")
+	}
+	if tenantID == "" {
+		// Intentar extraer del payload crudo (algunos proveedores lo incluyen)
+		var payload map[string]any
+		if err := json.Unmarshal(body, &payload); err == nil {
+			if tid, ok := payload["tenant_id"].(string); ok {
+				tenantID = tid
+			}
+		}
+	}
+	if tenantID == "" {
+		return nil, fmt.Errorf("pop: missing tenant_id (header X-Tenant-ID, query param, or payload)")
 	}
 
 	tctx, err := resolver.Resolve(ctx, tenantID, provider, mode)
