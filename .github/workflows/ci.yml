@@ -62,10 +62,17 @@ jobs:
           cache: 'npm'
 
       - name: Instalar dependencias
+        working-directory: ./app
         run: npm ci
 
+      - name: Tests Node.js
+        working-directory: ./app
+        run: npm test
+
       - name: Lint
+        working-directory: ./app
         run: npm run lint --if-present
 
       - name: Type check
+        working-directory: ./app
         run: npm run typecheck --if-present
