@@ -5,7 +5,7 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "true",
+    "test": "node -e \"process.exit(0)\"",
     "dev": "nodemon src/index.js"
   },
   "dependencies": {},
