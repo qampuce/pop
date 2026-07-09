@@ -3,7 +3,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-      target: runtime
     container_name: pop-app
     ports:
       # Puerto asignado por registry: 3006 → interno 8080 (Go server)

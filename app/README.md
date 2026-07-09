@@ -106,6 +106,7 @@ res, err := client.Charge(ctx, &pop.ChargeRequestExt{
 cd app && docker compose up
 cd app && docker compose -f docker-compose.test.yml run --rm test
 cd app && go test ./...
+cd app && go run ./cmd/server
 ```
 
 ## Estado
@@ -127,4 +128,9 @@ cd app && go test ./...
     mapeo de códigos de error (K001-K012) a `NormalizedError` canónico,
     soporte APMs (cash/transfer) con NextAction (redirect), idempotency-key,
     tests con `httptest` (cobertura completa).
-  - ⏳ dLocal, Niubiz, Adyen.
+  - ✅ **dLocal** — Payments (auth/capture/charge/void), Refunds,
+    Tokenize (card tokens), webhooks con firma HMAC-SHA256 (`X-Signature`),
+    mapeo de códigos de error (4001-5009) a `NormalizedError` canónico,
+    soporte APMs (Pix/SPEI/PSE/PagoEfectivo) con NextAction (redirect/QR),
+    idempotency-key, tests con `httptest` (cobertura completa).
+  - ⏳ Niubiz, Adyen.

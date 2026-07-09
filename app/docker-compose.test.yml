@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
     container_name: pop-test
     working_dir: /app
-    command: sh -c "npm ci && npm test"
+    command: sh -c "go test ./... -v -cover"
     networks:
       - pop-test-net
 

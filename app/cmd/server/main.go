@@ -23,6 +23,13 @@ import (
 	"github.com/qampu/pop/internal/api"
 	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/pkg/pop"
+
+	// Importar adapters para registro automático en factory.Default
+	_ "github.com/qampu/pop/internal/adapters/mock"
+	_ "github.com/qampu/pop/internal/adapters/stripe"
+	_ "github.com/qampu/pop/internal/adapters/mercadopago"
+	_ "github.com/qampu/pop/internal/adapters/kushki"
+	_ "github.com/qampu/pop/internal/adapters/dlocal"
 )
 
 func main() {

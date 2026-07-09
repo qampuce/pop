@@ -1,25 +1,15 @@
-# ── Runtime stage ────────────────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
-
+FROM golang:1.21-alpine AS builder
 WORKDIR /app
+COPY go.mod go.sum* ./
+COPY internal ./internal
+COPY cmd ./cmd
+COPY pkg ./pkg
+RUN go mod download
+RUN go build -o pop-server ./cmd/server
 
-# Usuario no-root para seguridad.
-RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-
-# Copiar package.json primero para cache de dependencias.
-COPY package.json ./
-
-# Instalar dependencias.
-RUN npm ci --only=production
-
-# Copiar el resto del código fuente.
-COPY . .
-
-# Usuario no-root.
-USER appuser
-
-# El server Node.js escucha en 3000 por defecto (override via PORT env).
-ENV PORT=3000
-EXPOSE 3000
-
-CMD ["node", "src/index.js"]
+FROM alpine:latest
+WORKDIR /app
+COPY --from=builder /app/pop-server .
+ENV PORT=8080
+EXPOSE 8080
+CMD ./pop-server
