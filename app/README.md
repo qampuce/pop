@@ -133,4 +133,9 @@ cd app && go run ./cmd/server
     mapeo de códigos de error (4001-5009) a `NormalizedError` canónico,
     soporte APMs (Pix/SPEI/PSE/PagoEfectivo) con NextAction (redirect/QR),
     idempotency-key, tests con `httptest` (cobertura completa).
-  - ⏳ Niubiz, Adyen.
+  - ✅ **Niubiz** — Payments (auth/capture/charge/void), Refunds,
+    Tokenize (card tokens), webhooks con firma HMAC-SHA256 (`X-Signature`),
+    mapeo de códigos de error (1001-1009) a `NormalizedError` canónico,
+    soporte APMs (Yape/Plin) con NextAction (redirect/deep link/QR),
+    idempotency-key, tests con `httptest` (cobertura completa).
+  - ⏳ Adyen.

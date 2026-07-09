@@ -30,6 +30,7 @@ import (
 	_ "github.com/qampu/pop/internal/adapters/mercadopago"
 	_ "github.com/qampu/pop/internal/adapters/kushki"
 	_ "github.com/qampu/pop/internal/adapters/dlocal"
+	_ "github.com/qampu/pop/internal/adapters/niubiz"
 )
 
 func main() {
