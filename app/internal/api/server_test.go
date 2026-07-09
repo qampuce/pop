@@ -79,6 +79,39 @@ func TestHealth(t *testing.T) {
 	}
 }
 
+func TestHealthDetailed(t *testing.T) {
+	s := newTestServer(t)
+	w := s.do(t, "GET", "/health?detailed=true", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d body: %s", w.Code, w.Body.String())
+	}
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["status"] != "ok" {
+		t.Errorf("status = %v, want ok", body["status"])
+	}
+	components, ok := body["components"].(map[string]any)
+	if !ok {
+		t.Fatal("components field missing or not a map")
+	}
+	store, ok := components["store"].(map[string]any)
+	if !ok {
+		t.Fatal("store component missing or not a map")
+	}
+	if store["status"] != "ok" {
+		t.Errorf("store status = %v, want ok", store["status"])
+	}
+	factory, ok := components["factory"].(map[string]any)
+	if !ok {
+		t.Fatal("factory component missing or not a map")
+	}
+	if factory["status"] != "ok" {
+		t.Errorf("factory status = %v, want ok", factory["status"])
+	}
+}
+
 func TestProviders(t *testing.T) {
 	s := newTestServer(t)
 	w := s.do(t, "GET", "/providers", nil)
@@ -102,6 +135,30 @@ func TestProviders(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("providers = %v, want mock included", body.Providers)
+	}
+}
+
+func TestProvidersDetailed(t *testing.T) {
+	s := newTestServer(t)
+	w := s.do(t, "GET", "/providers?detailed=true", nil)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: %d", w.Code)
+	}
+	var body struct {
+		Providers map[string]any `json:"providers"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Providers) == 0 {
+		t.Fatal("no providers registered; expected at least mock")
+	}
+	mockCaps, ok := body.Providers["mock"]
+	if !ok {
+		t.Error("mock provider missing from detailed response")
+	}
+	if mockCaps == nil {
+		t.Error("mock provider capabilities are nil")
 	}
 }
 

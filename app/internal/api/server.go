@@ -75,12 +75,30 @@ func (s *Server) routes() {
 // --- Handlers ---------------------------------------------------------------
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
+	detailed := r.URL.Query().Get("detailed") == "true"
+	
+	response := map[string]any{
 		"status":   "ok",
 		"service":  "pop",
 		"version":  "0.5.0",
 		"uptime_s": int64(time.Since(startTime).Seconds()),
-	})
+	}
+	
+	if detailed {
+		response["components"] = map[string]any{
+			"store": map[string]any{
+				"status":       "ok",
+				"payments":     s.store.CountPayments(store.Filter{}),
+				"refunds":      len(s.store.ListRefunds(store.Filter{})),
+			},
+			"factory": map[string]any{
+				"status":    "ok",
+				"providers": factory.Default.Providers(),
+			},
+		}
+	}
+	
+	writeJSON(w, http.StatusOK, response)
 }
 
 var startTime = time.Now()
@@ -89,6 +107,30 @@ func (s *Server) handleProviders(w http.ResponseWriter, r *http.Request) {
 	// El Client usa factory.Default por defecto (poblado por blank imports de
 	// cada adapter en pkg/pop). Listamos los providers registrados ahí.
 	ids := factory.Default.Providers()
+	
+	// Si se solicita detalles, incluir capabilities
+	detailed := r.URL.Query().Get("detailed") == "true"
+	
+	if detailed {
+		providers := make(map[string]core.Capabilities)
+		for _, p := range ids {
+			gw, err := factory.Default.Build(&core.TenantContext{
+				TenantID: "__probe__",
+				Provider: p,
+				Country:  "PE",
+				Mode:     core.EnvTest,
+				Secret:   "__probe__",
+			})
+			if err == nil {
+				providers[string(p)] = gw.Capabilities()
+			}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"providers": providers,
+		})
+		return
+	}
+	
 	out := make([]string, 0, len(ids))
 	for _, p := range ids {
 		out = append(out, string(p))
@@ -435,7 +477,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		totalRefunded += r.Amount.Amount
 	}
 	
-	writeJSON(w, http.StatusOK, map[string]any{
+	response := map[string]any{
 		"payments": map[string]any{
 			"total":         len(allPayments),
 			"by_status":    statusCounts,
@@ -448,7 +490,44 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 			"total_refunded": totalRefunded,
 		},
 		"uptime_s": int64(time.Since(startTime).Seconds()),
-	})
+	}
+	
+	// Agregar métricas por tenant si se solicita
+	if r.URL.Query().Get("by_tenant") == "true" {
+		tenantMetrics := make(map[string]map[string]any)
+		for _, p := range allPayments {
+			if p.TenantID == "" {
+				continue
+			}
+			if _, ok := tenantMetrics[p.TenantID]; !ok {
+				tenantMetrics[p.TenantID] = map[string]any{
+					"payments": 0,
+					"amount":   int64(0),
+					"refunds":  0,
+				}
+			}
+			metrics := tenantMetrics[p.TenantID]
+			metrics["payments"] = metrics["payments"].(int) + 1
+			metrics["amount"] = metrics["amount"].(int64) + p.Amount.Amount
+		}
+		for _, r := range allRefunds {
+			if r.TenantID == "" {
+				continue
+			}
+			if _, ok := tenantMetrics[r.TenantID]; !ok {
+				tenantMetrics[r.TenantID] = map[string]any{
+					"payments": 0,
+					"amount":   int64(0),
+					"refunds":  0,
+				}
+			}
+			metrics := tenantMetrics[r.TenantID]
+			metrics["refunds"] = metrics["refunds"].(int) + 1
+		}
+		response["by_tenant"] = tenantMetrics
+	}
+	
+	writeJSON(w, http.StatusOK, response)
 }
 
 // --- Helpers ----------------------------------------------------------------

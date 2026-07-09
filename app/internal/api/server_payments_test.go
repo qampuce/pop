@@ -419,3 +419,89 @@ func TestHandleMetrics(t *testing.T) {
 		t.Errorf("expected uptime_s > 0, got %d", response.UptimeS)
 	}
 }
+
+func TestHandleMetrics_ByTenant(t *testing.T) {
+	st := store.New()
+	client, _ := pop.New(pop.Config{
+		Credentials: &mockCredentialResolver{},
+	})
+	srv := New(client, st)
+
+	// Seed payments de prueba con diferentes tenants
+	payment1 := &core.PaymentResult{
+		ID:        "pay_test_1",
+		TenantID:  "tenant_a",
+		Status:    core.StatusCaptured,
+		Reference: "order_1",
+		Amount:    core.Money{Amount: 10000, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	payment2 := &core.PaymentResult{
+		ID:        "pay_test_2",
+		TenantID:  "tenant_b",
+		Status:    core.StatusCaptured,
+		Reference: "order_2",
+		Amount:    core.Money{Amount: 20000, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	st.RecordPayment("charge", payment1)
+	st.RecordPayment("charge", payment2)
+
+	// Seed refunds de prueba
+	refund := &core.RefundResult{
+		ID:        "ref_test_1",
+		PaymentID: "pay_test_1",
+		TenantID:  "tenant_a",
+		Status:    core.StatusRefunded,
+		Reference: "order_1",
+		Amount:    core.Money{Amount: 5000, Currency: "PEN"},
+		Provider:  core.ProviderID("mock"),
+	}
+	st.RecordRefund(refund)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/metrics?by_tenant=true", nil)
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Errorf("expected status 200, got %d", w.Code)
+	}
+
+	var response struct {
+		Payments map[string]any `json:"payments"`
+		Refunds  map[string]any `json:"refunds"`
+		ByTenant map[string]map[string]any `json:"by_tenant"`
+		UptimeS  int64          `json:"uptime_s"`
+	}
+	if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if len(response.ByTenant) != 2 {
+		t.Errorf("expected 2 tenants, got %d", len(response.ByTenant))
+	}
+
+	tenantA, ok := response.ByTenant["tenant_a"]
+	if !ok {
+		t.Error("tenant_a metrics missing")
+	} else {
+		if tenantA["payments"] != int(1) {
+			t.Errorf("tenant_a payments = %v, want 1", tenantA["payments"])
+		}
+		if tenantA["refunds"] != int(1) {
+			t.Errorf("tenant_a refunds = %v, want 1", tenantA["refunds"])
+		}
+	}
+
+	tenantB, ok := response.ByTenant["tenant_b"]
+	if !ok {
+		t.Error("tenant_b metrics missing")
+	} else {
+		if tenantB["payments"] != int(1) {
+			t.Errorf("tenant_b payments = %v, want 1", tenantB["payments"])
+		}
+		if tenantB["refunds"] != int(0) {
+			t.Errorf("tenant_b refunds = %v, want 0", tenantB["refunds"])
+		}
+	}
+}

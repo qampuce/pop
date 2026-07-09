@@ -6,12 +6,12 @@
     {
       "method": "GET",
       "path": "/health",
-      "description": "Health check del servicio con versión y uptime"
+      "description": "Health check del servicio con versión y uptime. Query params: detailed=true para estado de componentes"
     },
     {
       "method": "GET",
       "path": "/providers",
-      "description": "Lista los providers de pago registrados en el orquestador"
+      "description": "Lista los providers de pago registrados en el orquestador. Query params: detailed=true para capabilities"
     },
     {
       "method": "POST",
@@ -66,7 +66,7 @@
     {
       "method": "GET",
       "path": "/api/v1/metrics",
-      "description": "Métricas agregadas de pagos y refunds (totales, por status, por provider, montos)"
+      "description": "Métricas agregadas de pagos y refunds (totales, por status, por provider, montos). Query params: by_tenant=true para desglose por tenant"
     },
     {
       "method": "POST",

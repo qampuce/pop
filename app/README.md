@@ -109,21 +109,62 @@ El HTTP server expone el SDK como una API REST en el puerto 8080. Todos los endp
 #### GET /health
 Health check del servicio con versión y uptime.
 
+Query params:
+- `detailed=true` — incluye estado de componentes (store, factory)
+
 ```json
 {
   "status": "ok",
   "service": "pop",
-  "version": "0.2.0",
-  "uptime_s": 1234
+  "version": "0.5.0",
+  "uptime_s": 1234,
+  "components": {
+    "store": {
+      "status": "ok",
+      "payments": 42,
+      "refunds": 5
+    },
+    "factory": {
+      "status": "ok",
+      "providers": ["mock", "stripe", "mercadopago", "kushki", "dlocal", "niubiz", "adyen"]
+    }
+  }
 }
 ```
 
 #### GET /providers
 Lista los providers de pago registrados en el orquestador.
 
+Query params:
+- `detailed=true` — incluye capabilities de cada provider
+
 ```json
 {
-  "providers": ["mock", "stripe", "mercadopago", "kushki", "dlocal", "niubiz"]
+  "providers": ["mock", "stripe", "mercadopago", "kushki", "dlocal", "niubiz", "adyen"]
+}
+```
+
+Con `detailed=true`:
+```json
+{
+  "providers": {
+    "mock": {
+      "countries": [],
+      "currencies": [],
+      "methods": ["card", "pix", "spei", "pse", "pagoefectivo", "yape", "plin"],
+      "supports_auth_only": true,
+      "supports_refund_partial": true,
+      "supports_vaulting": true
+    },
+    "stripe": {
+      "countries": [],
+      "currencies": [],
+      "methods": ["card"],
+      "supports_auth_only": true,
+      "supports_refund_partial": true,
+      "supports_vaulting": true
+    }
+  }
 }
 ```
 
@@ -261,6 +302,9 @@ Obtiene un refund específico por ID.
 #### GET /api/v1/metrics
 Métricas agregadas de pagos y refunds (totales, por status, por provider, montos).
 
+Query params:
+- `by_tenant=true` — incluye métricas desglosadas por tenant
+
 ```json
 {
   "payments": {
@@ -274,7 +318,19 @@ Métricas agregadas de pagos y refunds (totales, por status, por provider, monto
     "by_status": {"refunded": 5},
     "total_refunded": 50000
   },
-  "uptime_s": 3600
+  "uptime_s": 3600,
+  "by_tenant": {
+    "tenant_a": {
+      "payments": 50,
+      "amount": 750000,
+      "refunds": 3
+    },
+    "tenant_b": {
+      "payments": 50,
+      "amount": 750000,
+      "refunds": 2
+    }
+  }
 }
 ```
 
