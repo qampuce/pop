@@ -77,16 +77,20 @@ type Store struct {
 	mu       sync.RWMutex
 	payments map[string]*PaymentRecord // key: PaymentResult.ID
 	refunds  map[string]*RefundRecord  // key: RefundResult.ID
-	// index por tenant para listar sin escanear todo.
-	byTenant map[string]map[string]struct{} // tenantID -> set(paymentID)
+	// índices para consultas eficientes sin escanear todo.
+	byTenant  map[string]map[string]struct{} // tenantID -> set(paymentID)
+	byProvider map[core.ProviderID]map[string]struct{} // provider -> set(paymentID)
+	byStatus  map[core.PaymentStatus]map[string]struct{} // status -> set(paymentID)
 }
 
 // New construye un Store vacío.
 func New() *Store {
 	return &Store{
-		payments: make(map[string]*PaymentRecord),
-		refunds:  make(map[string]*RefundRecord),
-		byTenant: make(map[string]map[string]struct{}),
+		payments:   make(map[string]*PaymentRecord),
+		refunds:    make(map[string]*RefundRecord),
+		byTenant:   make(map[string]map[string]struct{}),
+		byProvider: make(map[core.ProviderID]map[string]struct{}),
+		byStatus:   make(map[core.PaymentStatus]map[string]struct{}),
 	}
 }
 
@@ -101,18 +105,36 @@ func (s *Store) RecordPayment(op string, res *core.PaymentResult) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := time.Now().UTC()
+	
+	// Si ya existe, actualizar índices si cambió provider/status
+	var oldProvider core.ProviderID
+	var oldStatus core.PaymentStatus
 	if existing, ok := s.payments[res.ID]; ok {
+		oldProvider = existing.Provider
+		oldStatus = existing.Status
 		existing.PaymentResult = res
 		existing.Operation = op
 		existing.LastUpdated = now
+		// Actualizar índices si cambiaron
+		if oldProvider != res.Provider {
+			s.removeFromProviderIndex(oldProvider, res.ID)
+			s.addToProviderIndex(res.Provider, res.ID)
+		}
+		if oldStatus != res.Status {
+			s.removeFromStatusIndex(oldStatus, res.ID)
+			s.addToStatusIndex(res.Status, res.ID)
+		}
 		return
 	}
+	
 	s.payments[res.ID] = &PaymentRecord{
 		PaymentResult: res,
 		StoredAt:      now,
 		Operation:     op,
 		LastUpdated:   now,
 	}
+	
+	// Actualizar todos los índices
 	if res.TenantID != "" {
 		set, ok := s.byTenant[res.TenantID]
 		if !ok {
@@ -120,6 +142,60 @@ func (s *Store) RecordPayment(op string, res *core.PaymentResult) {
 			s.byTenant[res.TenantID] = set
 		}
 		set[res.ID] = struct{}{}
+	}
+	s.addToProviderIndex(res.Provider, res.ID)
+	s.addToStatusIndex(res.Status, res.ID)
+}
+
+// addToProviderIndex agrega un payment al índice de provider
+func (s *Store) addToProviderIndex(provider core.ProviderID, id string) {
+	if provider == "" {
+		return
+	}
+	set, ok := s.byProvider[provider]
+	if !ok {
+		set = make(map[string]struct{})
+		s.byProvider[provider] = set
+	}
+	set[id] = struct{}{}
+}
+
+// removeFromProviderIndex elimina un payment del índice de provider
+func (s *Store) removeFromProviderIndex(provider core.ProviderID, id string) {
+	if provider == "" {
+		return
+	}
+	if set, ok := s.byProvider[provider]; ok {
+		delete(set, id)
+		if len(set) == 0 {
+			delete(s.byProvider, provider)
+		}
+	}
+}
+
+// addToStatusIndex agrega un payment al índice de status
+func (s *Store) addToStatusIndex(status core.PaymentStatus, id string) {
+	if status == "" {
+		return
+	}
+	set, ok := s.byStatus[status]
+	if !ok {
+		set = make(map[string]struct{})
+		s.byStatus[status] = set
+	}
+	set[id] = struct{}{}
+}
+
+// removeFromStatusIndex elimina un payment del índice de status
+func (s *Store) removeFromStatusIndex(status core.PaymentStatus, id string) {
+	if status == "" {
+		return
+	}
+	if set, ok := s.byStatus[status]; ok {
+		delete(set, id)
+		if len(set) == 0 {
+			delete(s.byStatus, status)
+		}
 	}
 }
 
@@ -157,6 +233,7 @@ func (s *Store) GetPayment(id string) (*PaymentRecord, error) {
 // ListPayments devuelve los registros que matchean el filtro.
 // Orden: por LastUpdated descendente (más reciente primero).
 // Soporta paginación vía el campo Limit del filtro.
+// Usa índices para consultas eficientes cuando hay filtros por tenant, provider o status.
 func (s *Store) ListPayments(f Filter) []*PaymentRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -167,13 +244,37 @@ func (s *Store) ListPayments(f Filter) []*PaymentRecord {
 	}
 
 	var out []*PaymentRecord
-	// Si hay filtro por tenant usamos el índice; si no, escaneamos.
-	if f.TenantID != "" {
+	var sourceIDs map[string]struct{}
+	
+	// Estrategia de selección de source set:
+	// 1. Si hay filtro por provider, usar índice byProvider
+	// 2. Si hay filtro por status, usar índice byStatus
+	// 3. Si hay filtro por tenant, usar índice byTenant
+	// 4. Si no hay filtros, escanear todo
+	
+	if f.Provider != "" {
+		ids, ok := s.byProvider[f.Provider]
+		if !ok {
+			return out
+		}
+		sourceIDs = ids
+	} else if f.Status != "" {
+		ids, ok := s.byStatus[f.Status]
+		if !ok {
+			return out
+		}
+		sourceIDs = ids
+	} else if f.TenantID != "" {
 		ids, ok := s.byTenant[f.TenantID]
 		if !ok {
 			return out
 		}
-		for id := range ids {
+		sourceIDs = ids
+	}
+	
+	// Iterar sobre el source set seleccionado
+	if sourceIDs != nil {
+		for id := range sourceIDs {
 			r := s.payments[id]
 			if r == nil {
 				continue
@@ -183,6 +284,7 @@ func (s *Store) ListPayments(f Filter) []*PaymentRecord {
 			}
 		}
 	} else {
+		// Sin índice aplicable, escanear todo
 		for _, r := range s.payments {
 			if matchFilter(r, f) {
 				out = append(out, r)
