@@ -37,10 +37,16 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/)
   mapeo de códigos de error (101-170) a `NormalizedError` canónico,
   soporte 3DS2 con NextAction (redirect/3DS), idempotency-key,
   tests completos.
+- Índices eficientes en store: por provider y status además del índice por tenant
+- Tests unitarios para índices de store (store_test.go)
+- Soporte para tenant_id en query params y payload en webhooks (no solo header)
 
 ### Changed
 - Dockerfile corregido para usar Go 1.21 en lugar de Node.js
 - Adapter de Adyen habilitado en main.go (ya no está comentado)
+- Consolidación de registro de adapters: eliminados init.go duplicados en kushki, dlocal y niubiz
+- Mejor rendimiento en ListPayments usando índices cuando hay filtros por provider o status
+- Estrategia de selección de índice: provider > status > tenant > full scan
 
 ## [0.1.0] - 2026-07-04
 
