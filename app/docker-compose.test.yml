@@ -5,12 +5,8 @@ services:
       dockerfile: Dockerfile
       target: builder
     container_name: pop-test
-    command: npm test
-    environment:
-      - NODE_ENV=test
-    volumes:
-      - ./src:/app/src:ro
-      - ./tests:/app/tests:ro
+    working_dir: /src
+    command: go test ./...
     networks:
       - pop-test-net
 

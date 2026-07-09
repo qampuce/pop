@@ -122,4 +122,9 @@ cd app && go test ./...
     mapeo de `cc_rejected_*` status_detail a `NormalizedError` canónico,
     soporte APMs (Pix/SPEI/PSE/PagoEfectivo) con NextAction (redirect/QR),
     idempotency-key, tests con `httptest` (69.1% cobertura).
-  - ⏳ Kushki, dLocal, Niubiz, Adyen.
+  - ✅ **Kushki** — Charges (auth/capture/charge/void), Refunds,
+    Tokenize (card tokens), webhooks con firma HMAC-SHA256 (`X-Kushki-Signature`),
+    mapeo de códigos de error (K001-K012) a `NormalizedError` canónico,
+    soporte APMs (cash/transfer) con NextAction (redirect), idempotency-key,
+    tests con `httptest` (cobertura completa).
+  - ⏳ dLocal, Niubiz, Adyen.

@@ -15,6 +15,10 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/)
   Tokenize (card_tokens), webhooks con firma HMAC-SHA256 (`x-signature`),
   mapeo de `cc_rejected_*` a `NormalizedError`, soporte APMs
   (Pix/SPEI/PSE/PagoEfectivo) con NextAction (redirect/QR), idempotency-key.
+- Adapter de Kushki: Charges (auth/capture/charge/void), Refunds,
+  Tokenize (card tokens), webhooks con firma HMAC-SHA256 (`X-Kushki-Signature`),
+  mapeo de códigos de error (K001-K012) a `NormalizedError`, soporte APMs
+  (cash/transfer) con NextAction (redirect), idempotency-key, tests completos.
 - Cascading: `missing_credentials` ahora es retryable cross-provider para
   que el SDK salte al siguiente provider configurado del tenant en lugar de
   abortar la operación.

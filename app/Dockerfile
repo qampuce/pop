@@ -1,32 +1,36 @@
 # ── Build stage ──────────────────────────────────────────────────────────────
-FROM node:22-alpine AS builder
+FROM golang:1.22-alpine AS builder
+
+WORKDIR /src
+
+# Cache de dependencias: copiamos go.mod primero y descargamos.
+COPY go.mod ./
+RUN go mod download
+
+# Copiamos el resto del código fuente.
+COPY . ./
+
+# Build estático del binario del server (CGO disabled para imagen alpine).
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" \
+      -o /out/pop-server ./cmd/server
+
+# ── Runtime stage ────────────────────────────────────────────────────────────
+FROM alpine:3.20 AS runtime
 
 WORKDIR /app
 
-# Instalar dependencias primero (cache layer)
-COPY package*.json ./
-RUN npm ci --only=production
-
-# Copiar código fuente
-COPY src/ ./src/
-
-# ── Runtime stage ─────────────────────────────────────────────────────────────
-FROM node:22-alpine AS runtime
-
-WORKDIR /app
-
-# Usuario no-root para seguridad
+# Usuario no-root para seguridad.
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Instalar nodemon para hot-reload en desarrollo
-RUN npm install -g nodemon
+# ca-certificates necesario para TLS hacia los proveedores (Stripe, MP, etc.).
+RUN apk add --no-cache ca-certificates wget
 
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/src ./src
+COPY --from=builder /out/pop-server /app/pop-server
 
 USER appuser
 
-EXPOSE 3000
+# El server Go escucha en 8080 por defecto (override via PORT env).
+ENV PORT=8080
+EXPOSE 8080
 
-# Hot-reload: reinicia automáticamente al cambiar archivos en src/
-CMD ["nodemon", "--watch", "src", "--ext", "js,json", "src/index.js"]
+CMD ["/app/pop-server"]
