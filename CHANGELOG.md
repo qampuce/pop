@@ -7,6 +7,8 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/)
 ## [Unreleased]
 
 ### Added
+- Documentación de arquitectura detallada (ARCHITECTURE.md) con diagramas de capas, patrones de diseño, flujos principales y roadmap
+- Patrones de uso avanzado en README.md: auth-only + capture diferido, void de autorización, reembolso parcial, tokenización con vaulting, routing por método, cascading personalizado, manejo de webhooks
 - Estructura inicial del proyecto con Docker
 - Infraestructura de agente autónomo (Devin/Qampu)
 - GitHub Actions: CI con tests en Docker

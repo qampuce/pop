@@ -96,6 +96,171 @@ res, err := client.Charge(ctx, &pop.ChargeRequestExt{
 })
 ```
 
+## Patrones de Uso Avanzados
+
+### Auth-only + Capture Diferido
+
+Para escenarios donde necesitas reservar fondos antes de capturar (ej. envío físico):
+
+```go
+// 1. Autorizar (reservar fondos)
+auth, err := client.Authorize(ctx, &pop.AuthorizeRequestExt{
+    AuthorizeRequest: pop.AuthorizeRequest{
+        Reference:     "order_456",
+        Amount:        pop.Money{Amount: 19990, Currency: "PEN"},
+        Method:        pop.MethodCard,
+        ProviderToken: "tok_xxx",
+    },
+    TenantID: "tnt_123",
+    Mode:     pop.Live,
+    Country:  "PE",
+})
+
+// 2. Capturar después (cuando se confirma el envío)
+capture, err := client.Capture(ctx, &pop.CaptureRequestExt{
+    CaptureRequest: pop.CaptureRequest{
+        AuthorizationID: auth.ID,
+        Amount:          pop.Money{Amount: 19990, Currency: "PEN"},
+    },
+    TenantID: "tnt_123",
+    Mode:     pop.Live,
+    Provider: auth.Provider,
+})
+```
+
+### Void de Autorización
+
+Para cancelar una autorización antes de capturar (ej. stock agotado):
+
+```go
+void, err := client.Void(ctx, &pop.VoidRequestExt{
+    VoidRequest: pop.VoidRequest{
+        AuthorizationID: auth.ID,
+        Reason:          "out_of_stock",
+    },
+    TenantID: "tnt_123",
+    Mode:     pop.Live,
+    Provider: auth.Provider,
+})
+```
+
+### Reembolso Parcial
+
+Para reembolsos parciales (ej. devolución de un ítem):
+
+```go
+refund, err := client.Refund(ctx, &pop.RefundRequestExt{
+    RefundRequest: pop.RefundRequest{
+        PaymentID: payment.ID,
+        Amount:    pop.Money{Amount: 9995, Currency: "PEN"}, // 50% del original
+        Reason:    pop.RefundRequestedByCustomer,
+    },
+    TenantID: "tnt_123",
+    Mode:     pop.Live,
+    Provider: payment.Provider,
+})
+```
+
+### Tokenización con Vaulting
+
+Para guardar tokens y reutilizarlos en cargos recurrentes:
+
+```go
+// 1. Tokenizar (frontend envía PAN/CVV al proveedor, devuelve token)
+tokenize, err := client.Tokenize(ctx, "tnt_123", pop.ProviderStripe, pop.Live, &pop.TokenizeRequest{
+    Method: pop.MethodCard,
+    Card: &pop.CardToken{
+        Token:  "tok_xxx", // del frontend
+        Last4:  "4242",
+        Brand:  "visa",
+    },
+})
+
+// 2. Usar token en cargos subsiguientes
+charge, err := client.Charge(ctx, &pop.ChargeRequestExt{
+    ChargeRequest: pop.ChargeRequest{
+        Reference:     "subscription_123",
+        Amount:        pop.Money{Amount: 19990, Currency: "USD"},
+        Method:        pop.MethodCard,
+        ProviderToken: tokenize.ProviderToken, // token reutilizable
+        Capture:       true,
+    },
+    TenantID: "tnt_123",
+    Mode:     pop.Live,
+    Country:  "US",
+})
+```
+
+### Routing por Método
+
+Para priorizar providers según el método de pago:
+
+```go
+client, _ := pop.New(pop.Config{
+    Credentials: myVault,
+    RoutingRules: &pop.RoutingRules{
+        Priorities: map[string][]pop.ProviderID{
+            "PE": {"niubiz", "mercadopago"},
+        },
+        MethodPriorities: map[pop.PaymentMethod][]pop.ProviderID{
+            pop.MethodPix:     {"dlocal", "mercadopago"},
+            pop.MethodPSE:     {"kushki", "dlocal"},
+            pop.MethodYape:    {"niubiz"},
+        },
+    },
+})
+```
+
+### Cascading con Política Personalizada
+
+Para configurar reintentos cross-provider:
+
+```go
+policy := cascading.Policy{
+    MaxAttempts: 3,
+    Backoff:     cascading.ExponentialBackoff,
+    RetryableErrors: map[string]bool{
+        "network_error": true,
+        "timeout": true,
+        "missing_credentials": true, // cross-provider
+    },
+}
+
+client, _ := pop.New(pop.Config{
+    Credentials: myVault,
+    CascadePolicy: policy,
+})
+```
+
+### Manejo de Webhooks
+
+Para procesar webhooks normalizados:
+
+```go
+// En tu HTTP server:
+func handleWebhook(w http.ResponseWriter, r *http.Request) {
+    provider := extractProviderFromPath(r.URL.Path) // /webhooks/stripe
+    mode := extractModeFromQuery(r.URL.Query())     // ?mode=test|live
+
+    event, err := client.ProcessWebhook(r.Context(), provider, mode, r)
+    if err != nil {
+        // Error de firma o parseo
+        http.Error(w, err.Error(), http.StatusBadRequest)
+        return
+    }
+
+    // Despachar a tu bus de eventos
+    switch event.Type {
+    case pop.EventPaymentCaptured:
+        onPaymentCaptured(event)
+    case pop.EventPaymentFailed:
+        onPaymentFailed(event)
+    case pop.EventRefundCompleted:
+        onRefundCompleted(event)
+    }
+}
+```
+
 ## Acceso desde celular
 
 🌐 **[https://pop.qampuapp.com](https://pop.qampuapp.com)**
