@@ -215,7 +215,7 @@ func matchFilter(r *PaymentRecord, f Filter) bool {
 // Insertion sort simple: las listas son acotadas (cap maxListLimit).
 func sortByUpdatedDesc(rs []*PaymentRecord) {
 	for i := 1; i < len(rs); i++ {
-		for j := i; j > 0 && rs[j-1].LastUpdated.Before(rs[j].LastUpdated) {
+		for j := i; j > 0 && rs[j-1].LastUpdated.Before(rs[j].LastUpdated); j-- {
 			rs[j-1], rs[j] = rs[j], rs[j-1]
 		}
 	}

@@ -3,7 +3,6 @@ package adyen
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/qampu/pop/internal/core"
 )
@@ -63,7 +62,7 @@ func TestAdyenAdapter_Tokenize(t *testing.T) {
 			name: "valid card tokenize",
 			req: &core.TokenizeRequest{
 				Method: core.MethodCard,
-				Card: &core.CardData{
+				Card: &core.CardToken{
 					Token: "tok_test_123",
 					Last4: "4242",
 					Brand: "visa",

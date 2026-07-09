@@ -2,7 +2,7 @@ services:
   test:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.test
     container_name: pop-test
     working_dir: /app
     command: sh -c "go test ./... -v -cover"

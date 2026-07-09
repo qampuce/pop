@@ -1,0 +1,13 @@
+# Dockerfile para ejecutar tests (incluye toolchain de Go completo)
+FROM golang:1.26-alpine
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+# Verificar que Go está disponible
+RUN go version
+
+CMD ["sh", "-c", "go test ./... -v -cover"]

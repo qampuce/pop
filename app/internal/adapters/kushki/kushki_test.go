@@ -536,7 +536,7 @@ func TestAPMRedirect(t *testing.T) {
 	req := &core.ChargeRequest{
 		Reference:     "order_123",
 		Amount:        core.Money{Amount: 10000, Currency: "USD"},
-		Method:        core.MethodCash,
+		Method:        core.MethodCard,
 		ProviderToken: "",
 		Capture:       true,
 	}

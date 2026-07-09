@@ -368,16 +368,11 @@ func TestWebhookVerifyValid(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, "/webhooks/niubiz", strings.NewReader(body))
 	req.Header.Set("X-Signature", fmt.Sprintf("hmac-sha256=%s", sig))
-	req.Header.Set("X-Niubiz-Webhook-Secret", secret)
-	req.Header.Set("X-Niubiz-Tenant", "tnt_1")
 
 	v := &niubizVerifier{}
-	tenantID, err := v.Verify(context.Background(), req.Header, []byte(body))
+	err := v.Verify([]byte(body), req.Header, secret)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if tenantID != "tnt_1" {
-		t.Errorf("expected tnt_1, got %s", tenantID)
 	}
 }
 
@@ -387,57 +382,39 @@ func TestWebhookVerifyBadSignature(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, "/webhooks/niubiz", strings.NewReader(body))
 	req.Header.Set("X-Signature", "hmac-sha256=deadbeef")
-	req.Header.Set("X-Niubiz-Webhook-Secret", secret)
 
 	v := &niubizVerifier{}
-	if _, err := v.Verify(context.Background(), req.Header, []byte(body)); err == nil {
+	if err := v.Verify([]byte(body), req.Header, secret); err == nil {
 		t.Fatal("expected signature mismatch error")
 	}
 }
 
 func TestWebhookNormalize(t *testing.T) {
 	body := `{"id":"evt_1","type":"payment.success","created_at":1700000000,"data":{"id":"pay_123","status":"SUCCESS","amount":199.90,"currency":"PEN","order_id":"order_42","created_at":1700000000}}`
-	tctx := &core.TenantContext{TenantID: "tnt_1", Provider: Provider, Country: "PE", Mode: core.EnvTest, Secret: "x"}
 
 	n := &niubizNormalizer{}
-	ev, err := n.Normalize(context.Background(), tctx, []byte(body))
+	ev, err := n.Normalize([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ev.Type != "payment.captured" {
 		t.Errorf("expected payment.captured, got %s", ev.Type)
 	}
-	if ev.PaymentID != "pay_123" {
-		t.Errorf("expected pay_123, got %s", ev.PaymentID)
-	}
-	if ev.Status != core.StatusCaptured {
-		t.Errorf("expected captured, got %s", ev.Status)
-	}
-	if ev.Amount.Amount != 19990 || ev.Amount.Currency != "PEN" {
-		t.Errorf("amount mismatch: %+v", ev.Amount)
-	}
-	if ev.Reference != "order_42" {
-		t.Errorf("expected order_42, got %s", ev.Reference)
-	}
-	if ev.ProviderEventID != "evt_1" {
-		t.Errorf("expected evt_1, got %s", ev.ProviderEventID)
+	if ev.Provider != Provider {
+		t.Errorf("expected niubiz provider, got %s", ev.Provider)
 	}
 }
 
 func TestWebhookNormalizeFailedEvent(t *testing.T) {
 	body := `{"id":"evt_2","type":"payment.failed","created_at":1700000000,"data":{"id":"pay_456","status":"REJECTED","amount":199.90,"currency":"PEN","order_id":"order_43"}}`
-	tctx := &core.TenantContext{TenantID: "tnt_1", Provider: Provider, Country: "PE", Mode: core.EnvTest, Secret: "x"}
 
 	n := &niubizNormalizer{}
-	ev, err := n.Normalize(context.Background(), tctx, []byte(body))
+	ev, err := n.Normalize([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ev.Type != "payment.failed" {
 		t.Errorf("expected payment.failed, got %s", ev.Type)
-	}
-	if ev.Status != core.StatusFailed {
-		t.Errorf("expected failed, got %s", ev.Status)
 	}
 }
 

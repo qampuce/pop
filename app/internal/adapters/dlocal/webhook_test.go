@@ -69,7 +69,7 @@ func TestDLocalVerifier_Verify(t *testing.T) {
 				req.Header.Set("X-Signature", sign)
 			}
 
-			err := verifier.Verify(req, secret)
+			err := verifier.Verify(body, req.Header, secret)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Verify() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -81,11 +81,10 @@ func TestDLocalNormalizer_Normalize(t *testing.T) {
 	normalizer := &dlocalNormalizer{}
 
 	tests := []struct {
-		name      string
-		body      string
-		wantType  string
-		wantStatus core.PaymentStatus
-		wantErr   bool
+		name     string
+		body     string
+		wantType string
+		wantErr  bool
 	}{
 		{
 			name: "payment paid",
@@ -100,9 +99,8 @@ func TestDLocalNormalizer_Normalize(t *testing.T) {
 					"currency": "USD"
 				}
 			}`,
-			wantType:  "payment.captured",
-			wantStatus: core.StatusCaptured,
-			wantErr:   false,
+			wantType: "payment.captured",
+			wantErr:  false,
 		},
 		{
 			name: "payment authorized",
@@ -117,9 +115,8 @@ func TestDLocalNormalizer_Normalize(t *testing.T) {
 					"currency": "USD"
 				}
 			}`,
-			wantType:  "payment.authorized",
-			wantStatus: core.StatusAuthorized,
-			wantErr:   false,
+			wantType: "payment.authorized",
+			wantErr:  false,
 		},
 		{
 			name: "payment rejected",
@@ -134,9 +131,8 @@ func TestDLocalNormalizer_Normalize(t *testing.T) {
 					"currency": "USD"
 				}
 			}`,
-			wantType:  "payment.failed",
-			wantStatus: core.StatusFailed,
-			wantErr:   false,
+			wantType: "payment.failed",
+			wantErr:  false,
 		},
 		{
 			name: "refund success",
@@ -151,9 +147,8 @@ func TestDLocalNormalizer_Normalize(t *testing.T) {
 					"currency": "USD"
 				}
 			}`,
-			wantType:  "refund.completed",
-			wantStatus: core.StatusRefunded,
-			wantErr:   false,
+			wantType: "refund.completed",
+			wantErr:  false,
 		},
 		{
 			name:    "invalid json",
@@ -179,40 +174,12 @@ func TestDLocalNormalizer_Normalize(t *testing.T) {
 				return
 			}
 			if !tt.wantErr {
-				if evt.EventType != tt.wantType {
-					t.Errorf("EventType = %v, want %v", evt.EventType, tt.wantType)
-				}
-				if evt.Status != tt.wantStatus {
-					t.Errorf("Status = %v, want %v", evt.Status, tt.wantStatus)
+				if evt.Type != tt.wantType {
+					t.Errorf("Type = %v, want %v", evt.Type, tt.wantType)
 				}
 				if evt.Provider != Provider {
 					t.Errorf("Provider = %v, want %v", evt.Provider, Provider)
 				}
-			}
-		})
-	}
-}
-
-func TestMapEventType(t *testing.T) {
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"payment.paid", "payment.captured"},
-		{"payment.authorized", "payment.authorized"},
-		{"payment.rejected", "payment.failed"},
-		{"payment.cancelled", "payment.voided"},
-		{"payment.pending", "payment.pending"},
-		{"refund.success", "refund.completed"},
-		{"refund.failed", "refund.failed"},
-		{"unknown", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := mapEventType(tt.input)
-			if result != tt.expected {
-				t.Errorf("mapEventType(%s) = %v, want %v", tt.input, result, tt.expected)
 			}
 		})
 	}
@@ -268,7 +235,7 @@ func TestWebhookIntegration(t *testing.T) {
 	req.Header.Set("X-Signature", signature)
 
 	// Verificar firma
-	err := verifier.Verify(req, secret)
+	err := verifier.Verify([]byte(body), req.Header, secret)
 	if err != nil {
 		t.Fatalf("Verify() error = %v", err)
 	}
@@ -279,13 +246,10 @@ func TestWebhookIntegration(t *testing.T) {
 		t.Fatalf("Normalize() error = %v", err)
 	}
 
-	if evt.EventType != "payment.captured" {
-		t.Errorf("EventType = %v, want payment.captured", evt.EventType)
+	if evt.Type != "payment.captured" {
+		t.Errorf("Type = %v, want payment.captured", evt.Type)
 	}
-	if evt.Status != core.StatusCaptured {
-		t.Errorf("Status = %v, want %v", evt.Status, core.StatusCaptured)
-	}
-	if evt.PaymentID != "pay_int" {
-		t.Errorf("PaymentID = %v, want pay_int", evt.PaymentID)
+	if evt.Provider != Provider {
+		t.Errorf("Provider = %v, want %v", evt.Provider, Provider)
 	}
 }

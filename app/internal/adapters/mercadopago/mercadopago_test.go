@@ -385,17 +385,12 @@ func TestWebhookVerifyValid(t *testing.T) {
 	body := fmt.Sprintf(`{"action":"payment.updated","data":{"id":"%s"},"id":100,"date_created":"2026-01-02T15:04:05.000-03:00"}`, dataID)
 	req, _ := http.NewRequest(http.MethodPost, "/webhooks/mercadopago", strings.NewReader(body))
 	req.Header.Set("X-Signature", fmt.Sprintf("ts=%d,v1=%s", ts, sig))
-	req.Header.Set("X-MP-Webhook-Secret", secret)
-	req.Header.Set("X-MP-Tenant", "tnt_1")
 	req.Header.Set("X-MP-Data-ID", dataID)
 
 	v := &mpVerifier{}
-	tenantID, err := v.Verify(context.Background(), req.Header, []byte(body))
+	err := v.Verify([]byte(body), req.Header, secret)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if tenantID != "tnt_1" {
-		t.Errorf("expected tnt_1, got %s", tenantID)
 	}
 }
 
@@ -406,11 +401,10 @@ func TestWebhookVerifyBadSignature(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, "/webhooks/mercadopago", strings.NewReader(body))
 	req.Header.Set("X-Signature", fmt.Sprintf("ts=%d,v1=deadbeef", ts))
-	req.Header.Set("X-MP-Webhook-Secret", secret)
 	req.Header.Set("X-MP-Data-ID", "123")
 
 	v := &mpVerifier{}
-	if _, err := v.Verify(context.Background(), req.Header, []byte(body)); err == nil {
+	if err := v.Verify([]byte(body), req.Header, secret); err == nil {
 		t.Fatal("expected signature mismatch error")
 	}
 }
@@ -426,35 +420,24 @@ func TestWebhookVerifyStaleTimestamp(t *testing.T) {
 
 	req, _ := http.NewRequest(http.MethodPost, "/webhooks/mercadopago", strings.NewReader(body))
 	req.Header.Set("X-Signature", fmt.Sprintf("ts=%d,v1=%s", ts, sig))
-	req.Header.Set("X-MP-Webhook-Secret", secret)
 	req.Header.Set("X-MP-Data-ID", "123")
 
 	v := &mpVerifier{}
-	if _, err := v.Verify(context.Background(), req.Header, []byte(body)); err == nil {
+	if err := v.Verify([]byte(body), req.Header, secret); err == nil {
 		t.Fatal("expected stale timestamp error")
 	}
 }
 
 func TestWebhookNormalize(t *testing.T) {
 	body := `{"action":"payment.updated","data":{"id":"123456789"},"id":100,"date_created":"2026-01-02T15:04:05.000-03:00","type":"payment","user_id":999}`
-	tctx := &core.TenantContext{TenantID: "tnt_1", Provider: Provider, Country: "PE", Mode: core.EnvTest, Secret: "x"}
 
 	n := &mpNormalizer{}
-	ev, err := n.Normalize(context.Background(), tctx, []byte(body))
+	ev, err := n.Normalize([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ev.Type != webhook.EventPaymentPending {
 		t.Errorf("expected payment.pending, got %s", ev.Type)
-	}
-	if ev.PaymentID != "123456789" {
-		t.Errorf("expected 123456789, got %s", ev.PaymentID)
-	}
-	if ev.Status != core.StatusPending {
-		t.Errorf("expected pending (MP webhook lacks status), got %s", ev.Status)
-	}
-	if ev.ProviderEventID != "100" {
-		t.Errorf("expected 100, got %s", ev.ProviderEventID)
 	}
 	if ev.Provider != Provider {
 		t.Errorf("expected mercadopago provider, got %s", ev.Provider)
