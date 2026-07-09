@@ -1,15 +1,9 @@
-FROM golang:1.21-alpine AS builder
+FROM node:18-alpine
 WORKDIR /app
-COPY go.mod go.sum* ./
-COPY internal ./internal
-COPY cmd ./cmd
-COPY pkg ./pkg
-RUN go mod download
-RUN go build -o pop-server ./cmd/server
-
-FROM alpine:latest
-WORKDIR /app
-COPY --from=builder /app/pop-server .
+COPY package.json ./
+RUN npm install
+COPY src ./src
+COPY tests ./tests
 ENV PORT=8080
 EXPOSE 8080
-CMD ./pop-server
+CMD ["npm", "start"]
