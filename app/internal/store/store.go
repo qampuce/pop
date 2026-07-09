@@ -82,6 +82,10 @@ type Store struct {
 	byTenant  map[string]map[string]struct{} // tenantID -> set(paymentID)
 	byProvider map[core.ProviderID]map[string]struct{} // provider -> set(paymentID)
 	byStatus  map[core.PaymentStatus]map[string]struct{} // status -> set(paymentID)
+	// índices para refunds
+	refundsByTenant  map[string]map[string]struct{} // tenantID -> set(refundID)
+	refundsByProvider map[core.ProviderID]map[string]struct{} // provider -> set(refundID)
+	refundsByStatus  map[core.PaymentStatus]map[string]struct{} // status -> set(refundID)
 }
 
 // New construye un Store vacío.
@@ -92,6 +96,9 @@ func New() *Store {
 		byTenant:   make(map[string]map[string]struct{}),
 		byProvider: make(map[core.ProviderID]map[string]struct{}),
 		byStatus:   make(map[core.PaymentStatus]map[string]struct{}),
+		refundsByTenant:   make(map[string]map[string]struct{}),
+		refundsByProvider: make(map[core.ProviderID]map[string]struct{}),
+		refundsByStatus:   make(map[core.PaymentStatus]map[string]struct{}),
 	}
 }
 
@@ -211,6 +218,32 @@ func (s *Store) RecordRefund(res *core.RefundResult) {
 		RefundResult: res,
 		StoredAt:     time.Now().UTC(),
 	}
+	
+	// Actualizar índices de refunds
+	if res.TenantID != "" {
+		set, ok := s.refundsByTenant[res.TenantID]
+		if !ok {
+			set = make(map[string]struct{})
+			s.refundsByTenant[res.TenantID] = set
+		}
+		set[res.ID] = struct{}{}
+	}
+	if res.Provider != "" {
+		set, ok := s.refundsByProvider[res.Provider]
+		if !ok {
+			set = make(map[string]struct{})
+			s.refundsByProvider[res.Provider] = set
+		}
+		set[res.ID] = struct{}{}
+	}
+	if res.Status != "" {
+		set, ok := s.refundsByStatus[res.Status]
+		if !ok {
+			set = make(map[string]struct{})
+			s.refundsByStatus[res.Status] = set
+		}
+		set[res.ID] = struct{}{}
+	}
 }
 
 // GetPayment recupera un PaymentRecord por ID.
@@ -303,6 +336,7 @@ func (s *Store) ListPayments(f Filter) []*PaymentRecord {
 
 // ListRefunds devuelve los registros de refunds que matchean el filtro.
 // Orden: por StoredAt descendente (más reciente primero).
+// Usa índices para consultas eficientes cuando hay filtros por tenant, provider o status.
 func (s *Store) ListRefunds(f Filter) []*RefundRecord {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -313,27 +347,55 @@ func (s *Store) ListRefunds(f Filter) []*RefundRecord {
 	}
 
 	var out []*RefundRecord
-	for _, r := range s.refunds {
-		if r == nil {
-			continue
+	var sourceIDs map[string]struct{}
+	
+	// Estrategia de selección de source set:
+	// 1. Si hay filtro por provider, usar índice refundsByProvider
+	// 2. Si hay filtro por status, usar índice refundsByStatus
+	// 3. Si hay filtro por tenant, usar índice refundsByTenant
+	// 4. Si no hay filtros, escanear todo
+	
+	if f.Provider != "" {
+		ids, ok := s.refundsByProvider[f.Provider]
+		if !ok {
+			return out
 		}
-		// Filtrar por tenant si está especificado
-		if f.TenantID != "" && r.TenantID != f.TenantID {
-			continue
+		sourceIDs = ids
+	} else if f.Status != "" {
+		ids, ok := s.refundsByStatus[f.Status]
+		if !ok {
+			return out
 		}
-		// Filtrar por status si está especificado
-		if f.Status != "" && r.Status != f.Status {
-			continue
+		sourceIDs = ids
+	} else if f.TenantID != "" {
+		ids, ok := s.refundsByTenant[f.TenantID]
+		if !ok {
+			return out
 		}
-		// Filtrar por provider si está especificado
-		if f.Provider != "" && r.Provider != f.Provider {
-			continue
+		sourceIDs = ids
+	}
+	
+	// Iterar sobre el source set seleccionado
+	if sourceIDs != nil {
+		for id := range sourceIDs {
+			r := s.refunds[id]
+			if r == nil {
+				continue
+			}
+			if matchRefundFilter(r, f) {
+				out = append(out, r)
+			}
 		}
-		// Filtrar por payment_id (reference en refunds es el payment_id)
-		if f.Reference != "" && r.PaymentID != f.Reference {
-			continue
+	} else {
+		// Sin índice aplicable, escanear todo
+		for _, r := range s.refunds {
+			if r == nil {
+				continue
+			}
+			if matchRefundFilter(r, f) {
+				out = append(out, r)
+			}
 		}
-		out = append(out, r)
 	}
 
 	// Ordenar por StoredAt desc
@@ -392,6 +454,23 @@ func matchFilter(r *PaymentRecord, f Filter) bool {
 		return false
 	}
 	if f.Reference != "" && r.Reference != f.Reference {
+		return false
+	}
+	return true
+}
+
+// matchRefundFilter aplica los campos no-zero del filtro para refunds.
+func matchRefundFilter(r *RefundRecord, f Filter) bool {
+	if f.TenantID != "" && r.TenantID != f.TenantID {
+		return false
+	}
+	if f.Status != "" && r.Status != f.Status {
+		return false
+	}
+	if f.Provider != "" && r.Provider != f.Provider {
+		return false
+	}
+	if f.Reference != "" && r.PaymentID != f.Reference {
 		return false
 	}
 	return true

@@ -259,6 +259,7 @@ func (s *Server) handleRefund(w http.ResponseWriter, r *http.Request) {
 		writeGatewayError(w, err)
 		return
 	}
+	s.store.RecordRefund(res)
 	writeJSON(w, http.StatusOK, res)
 }
 
@@ -471,10 +472,12 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	
 	// Calcular estadísticas de refunds
 	refundCounts := make(map[string]int)
+	refundProviderCounts := make(map[string]int)
 	totalRefunded := int64(0)
 	
 	for _, r := range allRefunds {
 		refundCounts[string(r.Status)]++
+		refundProviderCounts[string(r.Provider)]++
 		totalRefunded += r.Amount.Amount
 	}
 	
@@ -488,6 +491,7 @@ func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 		"refunds": map[string]any{
 			"total":          len(allRefunds),
 			"by_status":      refundCounts,
+			"by_provider":    refundProviderCounts,
 			"total_refunded": totalRefunded,
 		},
 		"uptime_s": int64(time.Since(startTime).Seconds()),
@@ -554,10 +558,12 @@ func (s *Server) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request)
 	
 	// Calcular estadísticas de refunds
 	refundCounts := make(map[string]int)
+	refundProviderCounts := make(map[string]int)
 	totalRefunded := int64(0)
 	
 	for _, r := range allRefunds {
 		refundCounts[string(r.Status)]++
+		refundProviderCounts[string(r.Provider)]++
 		totalRefunded += r.Amount.Amount
 	}
 	
@@ -606,6 +612,14 @@ func (s *Server) handlePrometheusMetrics(w http.ResponseWriter, r *http.Request)
 	builder.WriteString(fmt.Sprintf("# TYPE pop_refunds_by_status gauge\n"))
 	for status, count := range refundCounts {
 		builder.WriteString(fmt.Sprintf("pop_refunds_by_status{status=\"%s\"} %d\n", status, count))
+	}
+	builder.WriteString("\n")
+	
+	// Métricas de refunds por provider
+	builder.WriteString(fmt.Sprintf("# HELP pop_refunds_by_provider Total de refunds por provider\n"))
+	builder.WriteString(fmt.Sprintf("# TYPE pop_refunds_by_provider gauge\n"))
+	for provider, count := range refundProviderCounts {
+		builder.WriteString(fmt.Sprintf("pop_refunds_by_provider{provider=\"%s\"} %d\n", provider, count))
 	}
 	builder.WriteString("\n")
 	
