@@ -294,7 +294,7 @@ func TestWebhook(t *testing.T) {
 	buf, _ := json.Marshal(body)
 	r := httptest.NewRequest("POST", "/webhooks/mock?mode=test", bytes.NewReader(buf))
 	r.Header.Set("Content-Type", "application/json")
-	r.Header.Set("X-Mock-Tenant", "demo")
+	r.Header.Set("X-Tenant-ID", "demo")
 	r.Header.Set("X-Mock-Signature", "mock_secret")
 	w := httptest.NewRecorder()
 	s.Handler().ServeHTTP(w, r)

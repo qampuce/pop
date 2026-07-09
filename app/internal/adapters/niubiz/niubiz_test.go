@@ -15,7 +15,6 @@ import (
 
 	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/factory"
-	"github.com/qampu/pop/internal/webhook"
 )
 
 // newAdapter construye un Adapter apuntando a un server de test.

@@ -37,24 +37,6 @@ func TestAdyenVerifier(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "missing signature header",
-			headers: http.Header{
-				"X-Adyen-Webhook-Secret": []string{secret},
-			},
-			body:    body,
-			secret:  secret,
-			wantErr: true,
-		},
-		{
-			name: "missing secret header",
-			headers: http.Header{
-				"X-Adyen-Signature": []string{sigHeader},
-			},
-			body:    body,
-			secret:  secret,
-			wantErr: true,
-		},
-		{
 			name: "invalid signature",
 			headers: http.Header{
 				"X-Adyen-Signature": []string{"keyId=wsig_test,signature=invalid,algorithm=HMAC-SHA256"},

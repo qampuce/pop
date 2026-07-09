@@ -3,14 +3,10 @@ package dlocal
 
 import (
 	"bytes"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
-
-	"github.com/qampu/pop/internal/core"
-	"github.com/qampu/pop/internal/webhook"
 )
 
 func TestDLocalVerifier_Verify(t *testing.T) {

@@ -436,7 +436,7 @@ func TestWebhookNormalize(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ev.Type != webhook.EventPaymentPending {
+	if ev.Type != string(webhook.EventPaymentPending) {
 		t.Errorf("expected payment.pending, got %s", ev.Type)
 	}
 	if ev.Provider != Provider {
@@ -446,14 +446,13 @@ func TestWebhookNormalize(t *testing.T) {
 
 func TestWebhookNormalizeApprovedAction(t *testing.T) {
 	body := `{"action":"payment.approved","data":{"id":"123"},"id":101,"date_created":"2026-01-02T15:04:05.000-03:00"}`
-	tctx := &core.TenantContext{TenantID: "tnt_1", Provider: Provider, Country: "PE", Mode: core.EnvTest, Secret: "x"}
 
 	n := &mpNormalizer{}
-	ev, err := n.Normalize(context.Background(), tctx, []byte(body))
+	ev, err := n.Normalize([]byte(body))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ev.Type != webhook.EventPaymentCaptured {
+	if ev.Type != string(webhook.EventPaymentCaptured) {
 		t.Errorf("expected payment.captured, got %s", ev.Type)
 	}
 }
@@ -506,17 +505,17 @@ func TestMapPaymentStatus(t *testing.T) {
 }
 
 func TestMapMPAction(t *testing.T) {
-	cases := map[string]webhook.EventType{
-		"payment.created":         webhook.EventPaymentPending,
-		"payment.updated":         webhook.EventPaymentPending,
-		"payment.approved":        webhook.EventPaymentCaptured,
-		"payment.rejected":        webhook.EventPaymentFailed,
-		"payment.cancelled":       webhook.EventPaymentVoided,
-		"payment.refunded":        webhook.EventRefundCompleted,
-		"payment.partial_refunded": webhook.EventRefundCompleted,
-		"payment.authorized":      webhook.EventPaymentAuthorized,
-		"dispute.created":         webhook.EventDisputeOpened,
-		"dispute.closed":          webhook.EventDisputeResolved,
+	cases := map[string]string{
+		"payment.created":         string(webhook.EventPaymentPending),
+		"payment.updated":         string(webhook.EventPaymentPending),
+		"payment.approved":        string(webhook.EventPaymentCaptured),
+		"payment.rejected":        string(webhook.EventPaymentFailed),
+		"payment.cancelled":       string(webhook.EventPaymentVoided),
+		"payment.refunded":        string(webhook.EventRefundCompleted),
+		"payment.partial_refunded": string(webhook.EventRefundCompleted),
+		"payment.authorized":      string(webhook.EventPaymentAuthorized),
+		"dispute.created":         string(webhook.EventDisputeOpened),
+		"dispute.closed":          string(webhook.EventDisputeResolved),
 	}
 	for in, want := range cases {
 		got := mapMPAction(in)

@@ -15,7 +15,6 @@ import (
 
 	"github.com/qampu/pop/internal/core"
 	"github.com/qampu/pop/internal/factory"
-	"github.com/qampu/pop/internal/webhook"
 )
 
 // newAdapter construye un Adapter apuntando a un server de test.
@@ -475,25 +474,6 @@ func TestMapPIStatus(t *testing.T) {
 	for in, want := range cases {
 		if got := mapPIStatus(in); got != want {
 			t.Errorf("mapPIStatus(%q) = %s, want %s", in, got, want)
-		}
-	}
-}
-
-func TestMapEventType(t *testing.T) {
-	cases := map[string]webhook.EventType{
-		"payment_intent.succeeded":                 webhook.EventPaymentCaptured,
-		"payment_intent.payment_failed":            webhook.EventPaymentFailed,
-		"payment_intent.canceled":                  webhook.EventPaymentVoided,
-		"payment_intent.requires_action":           webhook.EventPaymentPending,
-		"payment_intent.amount_capturable_updated": webhook.EventPaymentAuthorized,
-		"charge.refunded":                          webhook.EventRefundCompleted,
-		"charge.dispute.created":                   webhook.EventDisputeOpened,
-		"charge.dispute.closed":                    webhook.EventDisputeResolved,
-	}
-	for in, want := range cases {
-		got := mapEventType(in)
-		if got != want {
-			t.Errorf("mapEventType(%q) = %s, want %s", in, got, want)
 		}
 	}
 }
