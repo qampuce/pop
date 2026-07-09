@@ -303,6 +303,8 @@ cd app && go run ./cmd/server
     mapeo de códigos de error (1001-1009) a `NormalizedError` canónico,
     soporte APMs (Yape/Plin) con NextAction (redirect/deep link/QR),
     idempotency-key, tests con `httptest` (cobertura completa).
-  - ⏳ Adyen — Adapter implementado pero temporalmente deshabilitado por
-    problemas de compilación en el entorno Windows. Pendiente de habilitar
-    cuando el entorno Go esté funcionando correctamente.
+  - ✅ **Adyen** — Payments (auth/capture/charge/void), Refunds,
+    Tokenize (card tokens), webhooks con firma HMAC-SHA256 (`X-Adyen-Signature`),
+    mapeo de códigos de error (101-170) a `NormalizedError` canónico,
+    soporte 3DS2 con NextAction (redirect/3DS), idempotency-key,
+    tests completos.

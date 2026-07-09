@@ -38,6 +38,10 @@ Versionado: [Semantic Versioning](https://semver.org/lang/es/)
   soporte 3DS2 con NextAction (redirect/3DS), idempotency-key,
   tests completos.
 
+### Changed
+- Dockerfile corregido para usar Go 1.21 en lugar de Node.js
+- Adapter de Adyen habilitado en main.go (ya no está comentado)
+
 ## [0.1.0] - 2026-07-04
 
 ### Added
